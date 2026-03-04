@@ -1,10 +1,24 @@
 'use client';
 
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import Link from 'next/link';
+import { CSS } from '@dnd-kit/utilities';
+import {
+    DndContext,
+    PointerSensor,
+    closestCenter,
+    useSensor,
+    useSensors,
+    type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+    SortableContext,
+    verticalListSortingStrategy,
+    useSortable,
+} from '@dnd-kit/sortable';
 import {
     ArrowLeft,
     Download,
@@ -14,6 +28,9 @@ import {
     Trash2,
     ChevronUp,
     ChevronDown,
+    ZoomIn,
+    ZoomOut,
+    Maximize2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useDeckStore } from '@/lib/store';
@@ -22,6 +39,62 @@ import PropertiesPanel from '@/components/editor/PropertiesPanel';
 import { themes } from '@/lib/themes';
 import { generateId } from '@/lib/utils';
 import type { Slide } from '@/lib/schemas/deckspec';
+
+interface SlideThumbnailProps {
+    slide: Slide;
+    index: number;
+    isSelected: boolean;
+    onSelect: (index: number) => void;
+    theme: (typeof themes)[keyof typeof themes];
+}
+
+function SlideThumbnail({ slide, index, isSelected, onSelect, theme }: SlideThumbnailProps) {
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: slide.id });
+
+    return (
+        <motion.button
+            ref={setNodeRef}
+            layout
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            style={{
+                transform: CSS.Transform.toString(transform),
+                transition,
+            }}
+            onClick={() => onSelect(index)}
+            {...attributes}
+            {...listeners}
+            className={`w-full touch-none cursor-grab active:cursor-grabbing text-left rounded-lg overflow-hidden border transition-all duration-200 bg-white ${
+                isDragging
+                    ? 'border-[#34c759] ring-2 ring-[#34c759]/30 shadow-md opacity-80'
+                    : isSelected
+                      ? 'border-[#34c759] ring-2 ring-[#34c759]/20 shadow-sm'
+                      : 'border-[#0000000d] hover:border-[#0000001a] hover:shadow-sm'
+            }`}
+        >
+            <div className="aspect-video p-2 flex flex-col justify-between" style={{ background: theme.colors.background }}>
+                <p className="text-[6px] font-medium truncate leading-tight" style={{ color: theme.colors.text }}>
+                    {'title' in slide ? (slide as { title: string }).title : slide.type}
+                </p>
+                <div className="flex gap-0.5 mt-auto">
+                    {[...Array(3)].map((_, j) => (
+                        <div
+                            key={j}
+                            className="h-[2px] flex-1 rounded-full"
+                            style={{ background: theme.colors.text, opacity: 0.15 }}
+                        />
+                    ))}
+                </div>
+            </div>
+            <div className="px-2 py-1 bg-[#f4f7f4] border-t border-[#0000000a]">
+                <p className="text-[10px] text-zinc-500 font-medium">
+                    {index + 1}. {slide.type}
+                </p>
+            </div>
+        </motion.button>
+    );
+}
 
 export default function EditorPage() {
     const router = useRouter();
@@ -36,15 +109,20 @@ export default function EditorPage() {
         setGenerating,
         setDeckSpec,
     } = useDeckStore();
+    const [zoom, setZoom] = useState(100);
 
-    // Redirect if no deck
+    const sensors = useSensors(
+        useSensor(PointerSensor, {
+            activationConstraint: { distance: 5 },
+        })
+    );
+
     useEffect(() => {
         if (!deckSpec) {
             router.push('/create');
         }
     }, [deckSpec, router]);
 
-    // Keyboard shortcuts
     useEffect(() => {
         const handler = (e: KeyboardEvent) => {
             if ((e.metaKey || e.ctrlKey) && e.key === 's') {
@@ -126,6 +204,25 @@ export default function EditorPage() {
         reorderSlides(selectedSlideIndex, newIndex);
     };
 
+    const zoomOut = () => setZoom((z) => Math.max(60, z - 10));
+    const zoomIn = () => setZoom((z) => Math.min(140, z + 10));
+    const resetZoom = () => setZoom(100);
+
+    const handleDragEnd = useCallback(
+        (event: DragEndEvent) => {
+            if (!deckSpec) return;
+            const { active, over } = event;
+            if (!over || active.id === over.id) return;
+
+            const fromIndex = deckSpec.slides.findIndex((s) => s.id === active.id);
+            const toIndex = deckSpec.slides.findIndex((s) => s.id === over.id);
+            if (fromIndex === -1 || toIndex === -1) return;
+
+            reorderSlides(fromIndex, toIndex);
+        },
+        [deckSpec, reorderSlides]
+    );
+
     if (!deckSpec) {
         return (
             <div className="min-h-screen flex items-center justify-center">
@@ -139,7 +236,6 @@ export default function EditorPage() {
 
     return (
         <div className="h-screen flex flex-col bg-background overflow-hidden">
-            {/* ─── Top Bar ─────────────────────────────── */}
             <header className="h-14 border-b border-[#0000000d] bg-white flex items-center justify-between px-4 flex-shrink-0 z-10 shadow-sm">
                 <div className="flex items-center gap-3">
                     <Link
@@ -182,62 +278,29 @@ export default function EditorPage() {
                 </div>
             </header>
 
-            {/* ─── Main Area ───────────────────────────── */}
             <div className="flex-1 flex overflow-hidden">
-                {/* ─── Left: Slide Thumbnails ────────────── */}
                 <aside className="w-[200px] border-r border-[#0000000d] flex flex-col flex-shrink-0 bg-[#f4f7f4]">
                     <div className="flex-1 overflow-y-auto p-3 space-y-2">
-                        <AnimatePresence mode="popLayout">
-                            {deckSpec.slides.map((slide, i) => (
-                                <motion.button
-                                    key={slide.id}
-                                    layout
-                                    initial={{ opacity: 0, scale: 0.9 }}
-                                    animate={{ opacity: 1, scale: 1 }}
-                                    exit={{ opacity: 0, scale: 0.9 }}
-                                    onClick={() => selectSlide(i)}
-                                    className={`w-full text-left rounded-lg overflow-hidden border transition-all duration-200 bg-white ${selectedSlideIndex === i
-                                        ? 'border-[#34c759] ring-2 ring-[#34c759]/20 shadow-sm'
-                                        : 'border-[#0000000d] hover:border-[#0000001a] hover:shadow-sm'
-                                        }`}
-                                >
-                                    <div
-                                        className="aspect-video p-2 flex flex-col justify-between"
-                                        style={{ background: theme.colors.background }}
-                                    >
-                                        <p
-                                            className="text-[6px] font-medium truncate leading-tight"
-                                            style={{ color: theme.colors.text }}
-                                        >
-                                            {'title' in slide ? (slide as { title: string }).title : slide.type}
-                                        </p>
-                                        <div className="flex gap-0.5 mt-auto">
-                                            {[...Array(3)].map((_, j) => (
-                                                <div
-                                                    key={j}
-                                                    className="h-[2px] flex-1 rounded-full"
-                                                    style={{ background: theme.colors.text, opacity: 0.15 }}
-                                                />
-                                            ))}
-                                        </div>
-                                    </div>
-                                    <div className="px-2 py-1 bg-[#f4f7f4] border-t border-[#0000000a]">
-                                        <p className="text-[10px] text-zinc-500 font-medium">{i + 1}. {slide.type}</p>
-                                    </div>
-                                </motion.button>
-                            ))}
-                        </AnimatePresence>
+                        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                            <SortableContext items={deckSpec.slides.map((s) => s.id)} strategy={verticalListSortingStrategy}>
+                                <AnimatePresence mode="popLayout">
+                                    {deckSpec.slides.map((slide, i) => (
+                                        <SlideThumbnail
+                                            key={slide.id}
+                                            slide={slide}
+                                            index={i}
+                                            isSelected={selectedSlideIndex === i}
+                                            onSelect={selectSlide}
+                                            theme={theme}
+                                        />
+                                    ))}
+                                </AnimatePresence>
+                            </SortableContext>
+                        </DndContext>
                     </div>
 
-                    {/* Thumbnail controls */}
                     <div className="border-t border-[#0000000d] bg-white p-2 flex gap-1 flex-shrink-0 justify-around">
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7"
-                            onClick={handleAddSlide}
-                            title="Add slide"
-                        >
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleAddSlide} title="Add slide">
                             <Plus className="w-3.5 h-3.5" />
                         </Button>
                         <Button
@@ -276,31 +339,78 @@ export default function EditorPage() {
                     </div>
                 </aside>
 
-                {/* ─── Center: Slide Preview ─────────────── */}
-                <div className="flex-1 flex items-center justify-center p-8 bg-[#e5e7eb]/50">
-                    <motion.div
-                        key={currentSlide.id}
-                        initial={{ opacity: 0, scale: 0.95 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        transition={{ duration: 0.3 }}
-                        className="w-full max-w-4xl aspect-video rounded-xl overflow-hidden shadow-[0_20px_60px_-15px_rgba(0,0,0,0.1)] ring-1 ring-black/5"
-                    >
-                        <SlidePreview slide={currentSlide} theme={theme} />
-                    </motion.div>
+                <div className="flex-1 flex flex-col bg-[#e5e7eb]/50">
+                    <div className="h-11 border-b border-[#0000000d] bg-white/75 backdrop-blur-sm px-4 flex items-center justify-between">
+                        <div className="text-xs text-zinc-600 font-medium">
+                            Preview · Slide {selectedSlideIndex + 1} · {currentSlide.type}
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={zoomOut}
+                                title="Zoom out"
+                            >
+                                <ZoomOut className="w-3.5 h-3.5" />
+                            </Button>
+                            <button
+                                onClick={resetZoom}
+                                className="h-7 min-w-[52px] px-2 rounded-md border border-[#00000014] bg-white text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50"
+                                title="Reset zoom"
+                            >
+                                {zoom}%
+                            </button>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={zoomIn}
+                                title="Zoom in"
+                            >
+                                <ZoomIn className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={resetZoom}
+                                title="Fit to 100%"
+                            >
+                                <Maximize2 className="w-3.5 h-3.5" />
+                            </Button>
+                        </div>
+                    </div>
+
+                    <div className="flex-1 overflow-auto p-8 [background-image:radial-gradient(circle_at_1px_1px,rgba(17,24,39,0.08)_1px,transparent_0)] [background-size:18px_18px]">
+                        <div className="mx-auto w-fit pt-2">
+                            <motion.div
+                                key={currentSlide.id}
+                                initial={{ opacity: 0, scale: 0.95 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                transition={{ duration: 0.3 }}
+                                style={{
+                                    transform: `scale(${zoom / 100})`,
+                                    transformOrigin: 'top center',
+                                }}
+                                className="w-[960px] aspect-video rounded-xl overflow-hidden shadow-[0_20px_60px_-15px_rgba(0,0,0,0.1)] ring-1 ring-black/5 bg-white"
+                            >
+                                <SlidePreview slide={currentSlide} theme={theme} />
+                            </motion.div>
+                        </div>
+                    </div>
                 </div>
 
-                {/* ─── Right: Properties Panel ───────────── */}
                 <PropertiesPanel />
             </div>
 
-            {/* ─── Status Bar ──────────────────────────── */}
             <footer className="h-8 border-t border-[#0000000d] bg-white flex items-center justify-between px-4 text-[10px] text-zinc-500 flex-shrink-0 font-medium z-10">
                 <span>
                     Slide {selectedSlideIndex + 1} of {deckSpec.slides.length} · {deckSpec.themeId}
                 </span>
                 <span className="flex items-center gap-3">
-                    <span>⌘+S Save</span>
-                    <span>⌘+Enter Generate</span>
+                    <span>Ctrl/Cmd+S Save</span>
+                    <span>Ctrl/Cmd+Enter Generate</span>
                 </span>
             </footer>
         </div>

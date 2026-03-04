@@ -1,12 +1,31 @@
 import { NextResponse } from 'next/server';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { GenerateInputSchema, DeckSpecSchema } from '@/lib/schemas/deckspec';
 import { rateLimit, getClientIP } from '@/lib/rate-limit';
+import { THEME_IDS } from '@/lib/themes';
 
 export const maxDuration = 60;
 
+function normalizeDeckSpec(candidate: unknown) {
+    if (!candidate || typeof candidate !== 'object') return candidate;
+    const obj = candidate as Record<string, unknown>;
+    const nested = obj.deckSpec;
+    const root = nested && typeof nested === 'object' ? (nested as Record<string, unknown>) : obj;
+
+    const rawTheme = typeof root.themeId === 'string' ? root.themeId.trim() : '';
+    const themeId = THEME_IDS.includes(rawTheme as (typeof THEME_IDS)[number]) ? rawTheme : 'corporate';
+
+    return {
+        ...root,
+        title: typeof root.title === 'string' ? root.title.trim() : '',
+        subtitle: typeof root.subtitle === 'string' ? root.subtitle.trim() : undefined,
+        themeId,
+        slides: Array.isArray(root.slides) ? root.slides : [],
+    };
+}
+
 export async function POST(req: Request) {
     try {
-        // Rate limiting
         const ip = getClientIP(req);
         const limit = rateLimit(ip);
         if (!limit.allowed) {
@@ -16,7 +35,6 @@ export async function POST(req: Request) {
             );
         }
 
-        // Parse and validate input
         const json = await req.json();
         const parsed = GenerateInputSchema.safeParse(json);
 
@@ -28,8 +46,6 @@ export async function POST(req: Request) {
         }
 
         const input = parsed.data;
-
-        // Determine which provider to use
         const geminiKey = process.env.GEMINI_API_KEY;
         const openaiKey = process.env.OPENAI_API_KEY;
 
@@ -40,7 +56,6 @@ export async function POST(req: Request) {
             );
         }
 
-        // Build the prompt
         const systemPrompt = `You are a world-class presentation designer and strategist.
 Your goal is to create a compelling, highly structured presentation deck.
 
@@ -84,48 +99,36 @@ ${input.additionalInstructions ? `Additional Instructions: ${input.additionalIns
 
 Create exactly ${input.slideCount} slides. Make the content insightful, specific, and presentation-worthy.`;
 
-        let rawResponse: string;
+        let rawResponse = '';
 
         if (geminiKey) {
-            // ─── Gemini via REST API ────────────────────────────────
-            const modelName = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiKey}`;
-
-            const res = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [
-                        { role: 'user', parts: [{ text: systemPrompt + '\n\n' + userPrompt }] }
-                    ],
+            try {
+                const genAI = new GoogleGenerativeAI(geminiKey);
+                const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+                const model = genAI.getGenerativeModel({
+                    model: modelName,
                     generationConfig: {
                         temperature: 0.7,
-                        maxOutputTokens: 8192,
                         responseMimeType: 'application/json',
                     },
-                }),
-            });
-
-            if (!res.ok) {
-                const errBody = await res.text();
-                console.error('Gemini API error:', res.status, errBody);
+                });
+                const result = await model.generateContent(`${systemPrompt}\n\n${userPrompt}`);
+                rawResponse = result.response.text();
+            } catch (err: any) {
+                console.error('Gemini SDK error:', err);
                 return NextResponse.json(
-                    { error: `Gemini API error (${res.status}). Check your API key.` },
+                    { error: `Gemini API error. Check your API key. Details: ${err.message}` },
                     { status: 502 }
                 );
             }
-
-            const data = await res.json();
-            rawResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
         } else {
-            // ─── OpenAI via REST API ────────────────────────────────
             const modelName = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
             const res = await fetch('https://api.openai.com/v1/chat/completions', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${openaiKey}`,
+                    Authorization: `Bearer ${openaiKey}`,
                 },
                 body: JSON.stringify({
                     model: modelName,
@@ -152,7 +155,6 @@ Create exactly ${input.slideCount} slides. Make the content insightful, specific
             rawResponse = data.choices?.[0]?.message?.content || '';
         }
 
-        // ─── Parse JSON response ────────────────────────────────
         let cleaned = rawResponse.trim();
         if (cleaned.startsWith('```')) {
             cleaned = cleaned.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
@@ -163,9 +165,9 @@ Create exactly ${input.slideCount} slides. Make the content insightful, specific
             cleaned = cleaned.slice(start, end + 1);
         }
 
-        let deckSpec;
+        let parsedDeck: unknown;
         try {
-            deckSpec = JSON.parse(cleaned);
+            parsedDeck = JSON.parse(cleaned);
         } catch {
             console.error('Failed to parse LLM JSON:', cleaned.substring(0, 200));
             return NextResponse.json(
@@ -174,16 +176,17 @@ Create exactly ${input.slideCount} slides. Make the content insightful, specific
             );
         }
 
-        // Validate against schema  
-        const validated = DeckSpecSchema.safeParse(deckSpec);
+        const normalized = normalizeDeckSpec(parsedDeck);
+        const validated = DeckSpecSchema.safeParse(normalized);
         if (!validated.success) {
-            console.warn('DeckSpec validation failed, using raw response:', validated.error.flatten());
-            // Return raw response anyway — the editor can handle partial data
-            return NextResponse.json({ deckSpec });
+            console.warn('DeckSpec validation failed:', validated.error.flatten());
+            return NextResponse.json(
+                { error: 'The model returned an invalid deck format. Please try again.' },
+                { status: 422 }
+            );
         }
 
         return NextResponse.json({ deckSpec: validated.data });
-
     } catch (error) {
         console.error('Generate route error:', error);
         return NextResponse.json(

@@ -157,7 +157,8 @@ export default function CreatePage() {
         schema: DeckSpecSchema,
         onFinish: ({ object, error }: { object?: any, error?: Error }) => {
             if (error) {
-                toast.error(error.message || 'Failed to generate presentation. Please try again.');
+                console.error('Generation finish error:', error);
+                toast.error('Failed to generate presentation. Please try again.');
                 setGenerating(false);
             } else if (object) {
                 setDeckSpec(object as DeckSpec);
@@ -167,7 +168,8 @@ export default function CreatePage() {
             }
         },
         onError: (error: Error) => {
-            toast.error(error.message || 'Failed to start generation.');
+            console.error('Generation request error:', error);
+            toast.error('Failed to generate presentation. Please try again.');
             setGenerating(false);
         }
     });

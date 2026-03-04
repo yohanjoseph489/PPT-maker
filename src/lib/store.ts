@@ -66,9 +66,19 @@ export const useDeckStore = create<DeckStore>((set) => ({
             const slides = [...state.deckSpec.slides];
             const [moved] = slides.splice(fromIndex, 1);
             slides.splice(toIndex, 0, moved);
+            let nextSelected = state.selectedSlideIndex;
+
+            if (state.selectedSlideIndex === fromIndex) {
+                nextSelected = toIndex;
+            } else if (fromIndex < state.selectedSlideIndex && toIndex >= state.selectedSlideIndex) {
+                nextSelected = state.selectedSlideIndex - 1;
+            } else if (fromIndex > state.selectedSlideIndex && toIndex <= state.selectedSlideIndex) {
+                nextSelected = state.selectedSlideIndex + 1;
+            }
+
             return {
                 deckSpec: { ...state.deckSpec, slides },
-                selectedSlideIndex: toIndex,
+                selectedSlideIndex: nextSelected,
             };
         }),
 
