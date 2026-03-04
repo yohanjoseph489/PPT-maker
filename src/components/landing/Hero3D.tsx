@@ -11,16 +11,19 @@ function FloatingCard({
     color,
     scale = [1.8, 1.1, 0.05],
     delay = 0,
+    reduceMotion = false,
 }: {
     position: [number, number, number];
     rotation: [number, number, number];
     color: string;
     scale?: [number, number, number];
     delay?: number;
+    reduceMotion?: boolean;
 }) {
     const meshRef = useRef<THREE.Group>(null!);
 
     useFrame((state) => {
+        if (reduceMotion) return;
         if (meshRef.current) {
             meshRef.current.rotation.x =
                 rotation[0] + Math.sin(state.clock.elapsedTime * 0.3 + delay) * 0.05;
@@ -32,7 +35,7 @@ function FloatingCard({
     });
 
     return (
-        <Float speed={1.5} rotationIntensity={0.1} floatIntensity={0.2}>
+        <Float speed={reduceMotion ? 0 : 1.5} rotationIntensity={reduceMotion ? 0 : 0.1} floatIntensity={reduceMotion ? 0 : 0.2}>
             <group ref={meshRef} position={position} rotation={rotation}>
                 <RoundedBox args={scale} radius={0.04} smoothness={4} castShadow>
                     <meshPhysicalMaterial
@@ -52,7 +55,7 @@ function FloatingCard({
     );
 }
 
-function Particles({ count = 80 }: { count?: number }) {
+function Particles({ count = 80, reduceMotion = false }: { count?: number; reduceMotion?: boolean }) {
     const points = useRef<THREE.Points>(null!);
 
     const particlePositions = useMemo(() => {
@@ -66,6 +69,7 @@ function Particles({ count = 80 }: { count?: number }) {
     }, [count]);
 
     useFrame((state) => {
+        if (reduceMotion) return;
         if (points.current) {
             points.current.rotation.y = state.clock.elapsedTime * 0.02;
             points.current.rotation.x = Math.sin(state.clock.elapsedTime * 0.01) * 0.1;
@@ -91,7 +95,7 @@ function Particles({ count = 80 }: { count?: number }) {
     );
 }
 
-function Scene() {
+function Scene({ reduceMotion = false }: { reduceMotion?: boolean }) {
     return (
         <>
             <ambientLight intensity={1.5} />
@@ -106,6 +110,7 @@ function Scene() {
                 scale={[2.5, 3.5, 0.05]}
                 color="#6fa3c4"
                 delay={0}
+                reduceMotion={reduceMotion}
             />
             {/* Left Foreground (Square Green-ish, floating above) */}
             <FloatingCard
@@ -114,6 +119,7 @@ function Scene() {
                 scale={[1.8, 1.8, 0.05]}
                 color="#7cb99e"
                 delay={1}
+                reduceMotion={reduceMotion}
             />
             {/* Right Foreground (Vertical Green-ish) */}
             <FloatingCard
@@ -122,6 +128,7 @@ function Scene() {
                 scale={[1.6, 2.2, 0.05]}
                 color="#7cb99e"
                 delay={2}
+                reduceMotion={reduceMotion}
             />
             {/* Right Far Background (Vertical Darker Blue-Green) */}
             <FloatingCard
@@ -130,6 +137,7 @@ function Scene() {
                 scale={[1.5, 2.0, 0.05]}
                 color="#718d8e"
                 delay={3}
+                reduceMotion={reduceMotion}
             />
             {/* Bottom Center (Wide Tilted Frame) */}
             <FloatingCard
@@ -138,22 +146,24 @@ function Scene() {
                 scale={[3.5, 2.0, 0.05]}
                 color="#81a2aa"
                 delay={4}
+                reduceMotion={reduceMotion}
             />
 
+            <Particles count={reduceMotion ? 24 : 80} reduceMotion={reduceMotion} />
             <Environment preset="studio" environmentIntensity={0.6} />
         </>
     );
 }
 
-export default function Hero3D() {
+export default function Hero3D({ reduceMotion = false }: { reduceMotion?: boolean }) {
     return (
         <div className="absolute inset-0 z-0">
             <Canvas
                 camera={{ position: [0, 0, 5], fov: 45 }}
                 gl={{ antialias: true, alpha: true }}
-                dpr={[1, 1.5]}
+                dpr={reduceMotion ? [1, 1] : [1, 1.5]}
             >
-                <Scene />
+                <Scene reduceMotion={reduceMotion} />
             </Canvas>
 
             {/* Gradient overlays for readability */}

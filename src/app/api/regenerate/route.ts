@@ -32,11 +32,29 @@ export async function POST(request: Request) {
         const adapter = createLLMAdapter();
 
         if (slideIndex !== undefined) {
+            if (slideIndex < 0 || slideIndex >= deckSpec.slides.length) {
+                return NextResponse.json(
+                    { error: 'Invalid slide index.' },
+                    { status: 400 }
+                );
+            }
+
             // Regenerate single slide
             const prompt = buildRegenerateSlidePrompt(deckSpec, slideIndex, instruction);
             const rawResponse = await adapter.generate(prompt);
-            const jsonStr = extractJSON(rawResponse);
-            const slideResult = SlideSchema.safeParse(JSON.parse(jsonStr));
+
+            let parsedSlide: unknown;
+            try {
+                const jsonStr = extractJSON(rawResponse);
+                parsedSlide = JSON.parse(jsonStr);
+            } catch {
+                return NextResponse.json(
+                    { error: 'Failed to parse regenerated slide output.' },
+                    { status: 502 }
+                );
+            }
+
+            const slideResult = SlideSchema.safeParse(parsedSlide);
 
             if (!slideResult.success) {
                 return NextResponse.json(
@@ -45,8 +63,16 @@ export async function POST(request: Request) {
                 );
             }
 
+            const originalSlide = deckSpec.slides[slideIndex];
+            if (slideResult.data.type !== originalSlide.type) {
+                return NextResponse.json(
+                    { error: `Regenerated slide type mismatch. Expected "${originalSlide.type}".` },
+                    { status: 422 }
+                );
+            }
+
             const newSlides = [...deckSpec.slides];
-            newSlides[slideIndex] = slideResult.data;
+            newSlides[slideIndex] = { ...slideResult.data, id: originalSlide.id };
             const updatedSpec = { ...deckSpec, slides: newSlides };
 
             return NextResponse.json({ deckSpec: updatedSpec });
@@ -54,8 +80,19 @@ export async function POST(request: Request) {
             // Regenerate entire deck
             const prompt = buildRegenerateAllPrompt(deckSpec, instruction);
             const rawResponse = await adapter.generate(prompt);
-            const jsonStr = extractJSON(rawResponse);
-            const result = DeckSpecSchema.safeParse(JSON.parse(jsonStr));
+
+            let parsedDeck: unknown;
+            try {
+                const jsonStr = extractJSON(rawResponse);
+                parsedDeck = JSON.parse(jsonStr);
+            } catch {
+                return NextResponse.json(
+                    { error: 'Failed to parse regenerated deck output.' },
+                    { status: 502 }
+                );
+            }
+
+            const result = DeckSpecSchema.safeParse(parsedDeck);
 
             if (!result.success) {
                 return NextResponse.json(

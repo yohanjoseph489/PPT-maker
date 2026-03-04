@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useMemo, useState, memo } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
@@ -43,12 +43,13 @@ import type { Slide } from '@/lib/schemas/deckspec';
 interface SlideThumbnailProps {
     slide: Slide;
     index: number;
+    total: number;
     isSelected: boolean;
     onSelect: (index: number) => void;
     theme: (typeof themes)[keyof typeof themes];
 }
 
-function SlideThumbnail({ slide, index, isSelected, onSelect, theme }: SlideThumbnailProps) {
+const SlideThumbnail = memo(function SlideThumbnail({ slide, index, total, isSelected, onSelect, theme }: SlideThumbnailProps) {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: slide.id });
 
     return (
@@ -63,6 +64,8 @@ function SlideThumbnail({ slide, index, isSelected, onSelect, theme }: SlideThum
                 transition,
             }}
             onClick={() => onSelect(index)}
+            aria-label={`Slide ${index + 1} of ${total}: ${'title' in slide ? (slide as { title: string }).title : slide.type}`}
+            aria-selected={isSelected}
             {...attributes}
             {...listeners}
             className={`w-full touch-none cursor-grab active:cursor-grabbing text-left rounded-lg overflow-hidden border transition-all duration-200 bg-white ${
@@ -94,7 +97,7 @@ function SlideThumbnail({ slide, index, isSelected, onSelect, theme }: SlideThum
             </div>
         </motion.button>
     );
-}
+});
 
 export default function EditorPage() {
     const router = useRouter();
@@ -110,12 +113,38 @@ export default function EditorPage() {
         setDeckSpec,
     } = useDeckStore();
     const [zoom, setZoom] = useState(100);
+    const [isExporting, setIsExporting] = useState(false);
+
+    const readApiError = async (res: Response, fallback: string) => {
+        try {
+            const data = await res.json();
+            if (data?.error && typeof data.error === 'string') return data.error;
+            return fallback;
+        } catch {
+            return fallback;
+        }
+    };
+
+    const parseFilename = (header: string | null, fallbackTitle: string) => {
+        if (header) {
+            const utf8Match = header.match(/filename\*=UTF-8''([^;]+)/i);
+            if (utf8Match?.[1]) {
+                return decodeURIComponent(utf8Match[1]);
+            }
+            const basicMatch = header.match(/filename=\"?([^\";]+)\"?/i);
+            if (basicMatch?.[1]) {
+                return basicMatch[1];
+            }
+        }
+        return `${fallbackTitle.replace(/[^a-zA-Z0-9]/g, '_')}.pptx`;
+    };
 
     const sensors = useSensors(
         useSensor(PointerSensor, {
             activationConstraint: { distance: 5 },
         })
     );
+    const slideIds = useMemo(() => deckSpec?.slides.map((s) => s.id) ?? [], [deckSpec?.slides]);
 
     useEffect(() => {
         if (!deckSpec) {
@@ -128,15 +157,36 @@ export default function EditorPage() {
             if ((e.metaKey || e.ctrlKey) && e.key === 's') {
                 e.preventDefault();
                 toast.success('Deck saved to browser.');
+                return;
+            }
+
+            if (!deckSpec) return;
+            const target = e.target as HTMLElement | null;
+            const tag = target?.tagName?.toLowerCase();
+            const isTypingField =
+                tag === 'input' ||
+                tag === 'textarea' ||
+                tag === 'select' ||
+                target?.isContentEditable;
+
+            if (isTypingField) return;
+
+            if (e.key === 'ArrowUp' && selectedSlideIndex > 0) {
+                e.preventDefault();
+                selectSlide(selectedSlideIndex - 1);
+            } else if (e.key === 'ArrowDown' && selectedSlideIndex < deckSpec.slides.length - 1) {
+                e.preventDefault();
+                selectSlide(selectedSlideIndex + 1);
             }
         };
         document.addEventListener('keydown', handler);
         return () => document.removeEventListener('keydown', handler);
-    }, []);
+    }, [deckSpec, selectedSlideIndex, selectSlide]);
 
     const handleExport = useCallback(async () => {
-        if (!deckSpec) return;
+        if (!deckSpec || isExporting) return;
 
+        setIsExporting(true);
         toast.info('Generating PPTX...');
         try {
             const res = await fetch('/api/export', {
@@ -145,23 +195,30 @@ export default function EditorPage() {
                 body: JSON.stringify({ deckSpec }),
             });
 
-            if (!res.ok) throw new Error('Export failed');
+            if (!res.ok) {
+                const message = await readApiError(res, 'Failed to export PPTX. Please try again.');
+                throw new Error(message);
+            }
 
             const blob = await res.blob();
             const url = URL.createObjectURL(blob);
+            const contentDisposition = res.headers.get('content-disposition');
+            const filename = parseFilename(contentDisposition, deckSpec.title);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `${deckSpec.title.replace(/[^a-zA-Z0-9]/g, '_')}.pptx`;
+            a.download = filename;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
 
             toast.success('PPTX downloaded!');
-        } catch {
-            toast.error('Failed to export PPTX. Please try again.');
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : 'Failed to export PPTX. Please try again.');
+        } finally {
+            setIsExporting(false);
         }
-    }, [deckSpec]);
+    }, [deckSpec, isExporting]);
 
     const handleRegenerateAll = useCallback(async () => {
         if (!deckSpec) return;
@@ -174,12 +231,15 @@ export default function EditorPage() {
                 body: JSON.stringify({ deckSpec }),
             });
 
-            if (!res.ok) throw new Error('Regeneration failed');
+            if (!res.ok) {
+                const message = await readApiError(res, 'Failed to regenerate deck. Please try again.');
+                throw new Error(message);
+            }
             const data = await res.json();
             setDeckSpec(data.deckSpec);
             toast.success('Deck regenerated!');
-        } catch {
-            toast.error('Failed to regenerate. Please try again.');
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : 'Failed to regenerate. Please try again.');
         } finally {
             setGenerating(false);
         }
@@ -240,6 +300,7 @@ export default function EditorPage() {
                 <div className="flex items-center gap-3">
                     <Link
                         href="/create"
+                        aria-label="Back to create page"
                         className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
                     >
                         <ArrowLeft className="w-4 h-4" />
@@ -257,6 +318,8 @@ export default function EditorPage() {
                         size="sm"
                         onClick={handleRegenerateAll}
                         disabled={isGenerating}
+                        aria-label="Regenerate entire deck"
+                        aria-busy={isGenerating}
                         className="bg-white border-[#0000001a] hover:bg-[#f4f7f4] text-xs font-medium text-[#1d1d1f]"
                     >
                         {isGenerating ? (
@@ -270,10 +333,17 @@ export default function EditorPage() {
                     <Button
                         size="sm"
                         onClick={handleExport}
+                        disabled={isExporting}
+                        aria-label="Download presentation as PPTX"
+                        aria-busy={isExporting}
                         className="bg-[#34c759] hover:bg-[#28a745] text-white border-0 shadow-sm transition-all duration-300 rounded-lg text-xs font-semibold px-4"
                     >
-                        <Download className="w-3.5 h-3.5 mr-1.5" />
-                        Download PPTX
+                        {isExporting ? (
+                            <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                        ) : (
+                            <Download className="w-3.5 h-3.5 mr-1.5" />
+                        )}
+                        {isExporting ? 'Exporting...' : 'Download PPTX'}
                     </Button>
                 </div>
             </header>
@@ -282,25 +352,28 @@ export default function EditorPage() {
                 <aside className="w-[200px] border-r border-[#0000000d] flex flex-col flex-shrink-0 bg-[#f4f7f4]">
                     <div className="flex-1 overflow-y-auto p-3 space-y-2">
                         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                            <SortableContext items={deckSpec.slides.map((s) => s.id)} strategy={verticalListSortingStrategy}>
-                                <AnimatePresence mode="popLayout">
-                                    {deckSpec.slides.map((slide, i) => (
-                                        <SlideThumbnail
-                                            key={slide.id}
-                                            slide={slide}
-                                            index={i}
-                                            isSelected={selectedSlideIndex === i}
-                                            onSelect={selectSlide}
-                                            theme={theme}
-                                        />
-                                    ))}
-                                </AnimatePresence>
+                            <SortableContext items={slideIds} strategy={verticalListSortingStrategy}>
+                                <div role="listbox" aria-label="Slides list">
+                                    <AnimatePresence mode="popLayout">
+                                        {deckSpec.slides.map((slide, i) => (
+                                            <SlideThumbnail
+                                                key={slide.id}
+                                                slide={slide}
+                                                index={i}
+                                                total={deckSpec.slides.length}
+                                                isSelected={selectedSlideIndex === i}
+                                                onSelect={selectSlide}
+                                                theme={theme}
+                                            />
+                                        ))}
+                                    </AnimatePresence>
+                                </div>
                             </SortableContext>
                         </DndContext>
                     </div>
 
                     <div className="border-t border-[#0000000d] bg-white p-2 flex gap-1 flex-shrink-0 justify-around">
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleAddSlide} title="Add slide">
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleAddSlide} title="Add slide" aria-label="Add slide">
                             <Plus className="w-3.5 h-3.5" />
                         </Button>
                         <Button
@@ -310,6 +383,7 @@ export default function EditorPage() {
                             onClick={() => handleMoveSlide('up')}
                             disabled={selectedSlideIndex === 0}
                             title="Move up"
+                            aria-label="Move selected slide up"
                         >
                             <ChevronUp className="w-3.5 h-3.5" />
                         </Button>
@@ -320,6 +394,7 @@ export default function EditorPage() {
                             onClick={() => handleMoveSlide('down')}
                             disabled={selectedSlideIndex === deckSpec.slides.length - 1}
                             title="Move down"
+                            aria-label="Move selected slide down"
                         >
                             <ChevronDown className="w-3.5 h-3.5" />
                         </Button>
@@ -333,6 +408,7 @@ export default function EditorPage() {
                             }}
                             disabled={deckSpec.slides.length <= 1}
                             title="Delete slide"
+                            aria-label="Delete selected slide"
                         >
                             <Trash2 className="w-3.5 h-3.5" />
                         </Button>
@@ -351,6 +427,7 @@ export default function EditorPage() {
                                 className="h-7 w-7"
                                 onClick={zoomOut}
                                 title="Zoom out"
+                                aria-label="Zoom out"
                             >
                                 <ZoomOut className="w-3.5 h-3.5" />
                             </Button>
@@ -358,6 +435,7 @@ export default function EditorPage() {
                                 onClick={resetZoom}
                                 className="h-7 min-w-[52px] px-2 rounded-md border border-[#00000014] bg-white text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50"
                                 title="Reset zoom"
+                                aria-label="Reset zoom"
                             >
                                 {zoom}%
                             </button>
@@ -367,6 +445,7 @@ export default function EditorPage() {
                                 className="h-7 w-7"
                                 onClick={zoomIn}
                                 title="Zoom in"
+                                aria-label="Zoom in"
                             >
                                 <ZoomIn className="w-3.5 h-3.5" />
                             </Button>
@@ -376,6 +455,7 @@ export default function EditorPage() {
                                 className="h-7 w-7"
                                 onClick={resetZoom}
                                 title="Fit to 100%"
+                                aria-label="Fit preview to 100%"
                             >
                                 <Maximize2 className="w-3.5 h-3.5" />
                             </Button>

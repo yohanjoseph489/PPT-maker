@@ -1,7 +1,7 @@
 import PptxGenJS from 'pptxgenjs';
 import type { DeckSpec, Slide } from '@/lib/schemas/deckspec';
-import { getTheme, type ThemeDefinition } from '@/lib/themes';
-import { getPptxThemeConfig } from './themes';
+import { getTheme } from '@/lib/themes';
+import { getPptxThemeConfig, type PptxThemeConfig } from './themes';
 
 export async function generatePptx(deckSpec: DeckSpec): Promise<Buffer> {
     const pptx = new PptxGenJS();
@@ -15,27 +15,16 @@ export async function generatePptx(deckSpec: DeckSpec): Promise<Buffer> {
     pptx.author = 'SyncSlides';
 
     for (const slide of deckSpec.slides) {
-        addSlide(pptx, slide, theme, pptxTheme);
+        addSlide(pptx, slide, pptxTheme);
     }
 
     const data = await pptx.write({ outputType: 'nodebuffer' });
     return data as Buffer;
 }
 
-interface PptxThemeConfig {
-    bgColor: string;
-    titleColor: string;
-    textColor: string;
-    accentColor: string;
-    secondaryColor: string;
-    headingFont: string;
-    bodyFont: string;
-}
-
 function addSlide(
     pptx: PptxGenJS,
     slide: Slide,
-    theme: ThemeDefinition,
     config: PptxThemeConfig
 ) {
     const pptxSlide = pptx.addSlide();
@@ -76,7 +65,7 @@ function addSlide(
         y: 7.2,
         w: 13.333,
         h: 0.05,
-        fill: { color: config.accentColor },
+        fill: { color: config.primaryColor },
     });
 }
 
@@ -197,7 +186,7 @@ function renderTwoColumn(
         y: 1.8,
         w: 0.02,
         h: 4.5,
-        fill: { color: config.accentColor },
+        fill: { color: config.borderColor },
     });
 
     // Right column
@@ -286,8 +275,8 @@ function renderImageWithCaption(
         y: 1.5,
         w: 10,
         h: 4,
-        fill: { color: config.bgColor === 'FFFFFF' ? 'F1F5F9' : '2D2D44' },
-        line: { color: config.accentColor, width: 1 },
+        fill: { color: config.surfaceColor },
+        line: { color: config.borderColor, width: 1 },
         rectRadius: 0.1,
     });
 

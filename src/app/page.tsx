@@ -1,16 +1,37 @@
 'use client';
 
+import { useEffect } from 'react';
 import Link from 'next/link';
 import { ArrowRight, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import TemplateGallery from '@/components/landing/TemplateGallery';
 import FeatureStrip from '@/components/landing/FeatureStrip';
+import Hero3D from '@/components/landing/Hero3D';
+import { useDeckStore } from '@/lib/store';
 
 export default function LandingPage() {
+  const { reduce3D, disable3D, setReduce3D, setDisable3D } = useDeckStore();
+
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const applyPreference = () => {
+      const prefersReduced = media.matches;
+      setReduce3D(prefersReduced);
+      if (prefersReduced) {
+        setDisable3D(true);
+      }
+    };
+
+    applyPreference();
+    media.addEventListener('change', applyPreference);
+    return () => media.removeEventListener('change', applyPreference);
+  }, [setDisable3D, setReduce3D]);
+
   return (
     <main className="min-h-screen overflow-x-hidden bg-[#eef1f2] text-foreground">
       <section className="px-3 pt-1.5 sm:px-4 sm:pt-2">
         <div className="relative mx-auto min-h-[95vh] max-w-[1600px] overflow-hidden rounded-[20px] border border-[#d9dddf] bg-[#edf0f1]">
+          {!disable3D && <Hero3D reduceMotion={reduce3D} />}
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_35%,rgba(255,255,255,0.95),rgba(237,240,241,0.88)_45%,rgba(223,228,231,0.85)_100%)]" />
           <div className="absolute inset-0 backdrop-blur-[1px]" />
 
@@ -24,6 +45,32 @@ export default function LandingPage() {
                   SyncSlides
                 </span>
               </Link>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setReduce3D(!reduce3D)}
+                  aria-pressed={reduce3D}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    reduce3D
+                      ? 'border-[#69b698] bg-[#dff2ea] text-[#1f2937]'
+                      : 'border-[#a8b0b7] bg-white/80 text-[#374151] hover:bg-white'
+                  }`}
+                >
+                  Reduce Motion: {reduce3D ? 'On' : 'Off'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDisable3D(!disable3D)}
+                  aria-pressed={!disable3D}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    disable3D
+                      ? 'border-[#a8b0b7] bg-white/80 text-[#374151] hover:bg-white'
+                      : 'border-[#69b698] bg-[#dff2ea] text-[#1f2937]'
+                  }`}
+                >
+                  3D Background: {disable3D ? 'Off' : 'On'}
+                </button>
+              </div>
             </div>
           </nav>
 

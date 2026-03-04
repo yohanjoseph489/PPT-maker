@@ -27,6 +27,16 @@ export default function PropertiesPanel() {
 
     const currentSlide = deckSpec?.slides[selectedSlideIndex];
 
+    const readApiError = async (res: Response, fallback: string) => {
+        try {
+            const data = await res.json();
+            if (data?.error && typeof data.error === 'string') return data.error;
+            return fallback;
+        } catch {
+            return fallback;
+        }
+    };
+
     const handleSlideUpdate = useCallback(
         (updates: Partial<Slide>) => {
             updateSlide(selectedSlideIndex, updates);
@@ -58,13 +68,16 @@ export default function PropertiesPanel() {
                 }),
             });
 
-            if (!res.ok) throw new Error('Regeneration failed');
+            if (!res.ok) {
+                const message = await readApiError(res, 'Failed to regenerate slide.');
+                throw new Error(message);
+            }
             const data = await res.json();
             setDeckSpec(data.deckSpec);
             setRegenInstruction('');
             toast.success('Slide regenerated!');
-        } catch {
-            toast.error('Failed to regenerate slide.');
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : 'Failed to regenerate slide.');
         } finally {
             setIsRegenerating(false);
         }
