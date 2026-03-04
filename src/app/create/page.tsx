@@ -66,6 +66,7 @@ export default function CreatePage() {
     const [tone, setTone] = useState<string>('professional');
     const [slideCount, setSlideCount] = useState(8);
     const [themeId, setThemeId] = useState<ThemeId>('corporate');
+    const [generationMode, setGenerationMode] = useState<'standard' | 'advancedLayout'>('advancedLayout');
     const [includeSpeakerNotes, setIncludeSpeakerNotes] = useState(false);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -192,6 +193,7 @@ export default function CreatePage() {
             tone,
             slideCount,
             themeId,
+            generationMode,
             includeSpeakerNotes,
         });
     };
@@ -427,6 +429,29 @@ export default function CreatePage() {
                                                         </div>
                                                     </div>
                                                     <div className="space-y-4">
+                                                        <div>
+                                                            <label className="text-xs font-semibold text-[#86868b] uppercase tracking-wider mb-2 block">Generation Mode</label>
+                                                            <div className="grid grid-cols-2 gap-2">
+                                                                <button
+                                                                    onClick={() => setGenerationMode('advancedLayout')}
+                                                                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors border ${generationMode === 'advancedLayout'
+                                                                        ? 'bg-[#34c759]/10 border-[#34c759]/30 text-[#28a745]'
+                                                                        : 'bg-white border-[#0000001a] hover:bg-[#f4f7f4] text-[#1d1d1f]'
+                                                                        }`}
+                                                                >
+                                                                    Nano Canvas
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => setGenerationMode('standard')}
+                                                                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors border ${generationMode === 'standard'
+                                                                        ? 'bg-[#34c759]/10 border-[#34c759]/30 text-[#28a745]'
+                                                                        : 'bg-white border-[#0000001a] hover:bg-[#f4f7f4] text-[#1d1d1f]'
+                                                                        }`}
+                                                                >
+                                                                    Classic
+                                                                </button>
+                                                            </div>
+                                                        </div>
                                                         <div>
                                                             <label className="text-xs font-semibold text-[#86868b] uppercase tracking-wider mb-2 block">Audience (Optional)</label>
                                                             <input

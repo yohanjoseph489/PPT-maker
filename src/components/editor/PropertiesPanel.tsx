@@ -26,6 +26,7 @@ export default function PropertiesPanel() {
 
     const [regenInstruction, setRegenInstruction] = useState('');
     const [isRegenerating, setIsRegenerating] = useState(false);
+    const [canvasElementsDraft, setCanvasElementsDraft] = useState('');
 
     const currentSlide = deckSpec?.slides[selectedSlideIndex];
     const titleInputRef = useRef<HTMLInputElement>(null);
@@ -37,6 +38,11 @@ export default function PropertiesPanel() {
     const rightTextareaRef = useRef<HTMLTextAreaElement>(null);
     const captionInputRef = useRef<HTMLInputElement>(null);
     const imagePromptTextareaRef = useRef<HTMLTextAreaElement>(null);
+    const canvasElementsTextareaRef = useRef<HTMLTextAreaElement>(null);
+    const canvasBackgroundInputRef = useRef<HTMLInputElement>(null);
+    const chartLabelsTextareaRef = useRef<HTMLTextAreaElement>(null);
+    const chartValuesTextareaRef = useRef<HTMLTextAreaElement>(null);
+    const chartInsightsTextareaRef = useRef<HTMLTextAreaElement>(null);
     const imageUploadInputRef = useRef<HTMLInputElement>(null);
 
     const readApiError = async (res: Response, fallback: string) => {
@@ -127,6 +133,14 @@ export default function PropertiesPanel() {
     }, [handleSlideUpdate]);
 
     useEffect(() => {
+        if (currentSlide?.type === 'designerCanvas') {
+            setCanvasElementsDraft(JSON.stringify(currentSlide.elements || [], null, 2));
+        } else {
+            setCanvasElementsDraft('');
+        }
+    }, [currentSlide]);
+
+    useEffect(() => {
         if (!activeEditField) return;
 
         const refMap: Record<string, React.RefObject<HTMLInputElement | HTMLTextAreaElement | null>> = {
@@ -139,6 +153,11 @@ export default function PropertiesPanel() {
             right: rightTextareaRef,
             caption: captionInputRef,
             imagePrompt: imagePromptTextareaRef,
+            background: canvasBackgroundInputRef,
+            elements: canvasElementsTextareaRef,
+            labels: chartLabelsTextareaRef,
+            values: chartValuesTextareaRef,
+            insights: chartInsightsTextareaRef,
         };
 
         const target = refMap[activeEditField]?.current;
@@ -329,6 +348,90 @@ export default function PropertiesPanel() {
                         </div>
                     )}
 
+                    {currentSlide.type === 'designerCanvas' && (
+                        <>
+                            <div className="space-y-1">
+                                <Label className="text-xs">Canvas Background (hex or CSS color)</Label>
+                                <Input
+                                    ref={canvasBackgroundInputRef}
+                                    value={currentSlide.background || ''}
+                                    onChange={(e) => handleSlideUpdate({ background: e.target.value } as Partial<Slide>)}
+                                    placeholder="#F8FAFC"
+                                    className="text-xs bg-white border-[#0000001a] focus:border-[#34c759] h-8"
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <Label className="text-xs">Canvas Elements JSON</Label>
+                                <Textarea
+                                    ref={canvasElementsTextareaRef}
+                                    value={canvasElementsDraft}
+                                    onChange={(e) => setCanvasElementsDraft(e.target.value)}
+                                    onBlur={() => {
+                                        try {
+                                            const parsed = JSON.parse(canvasElementsDraft);
+                                            if (!Array.isArray(parsed)) {
+                                                throw new Error('Elements JSON must be an array.');
+                                            }
+                                            handleSlideUpdate({ elements: parsed } as Partial<Slide>);
+                                        } catch (error) {
+                                            toast.error(error instanceof Error ? error.message : 'Invalid elements JSON.');
+                                        }
+                                    }}
+                                    className="text-xs font-mono bg-white border-[#0000001a] focus:border-[#34c759] min-h-[180px] resize-y"
+                                />
+                                <p className="text-[10px] text-muted-foreground">
+                                    Edit element positions and style (x/y/w/h are percentages).
+                                </p>
+                            </div>
+                        </>
+                    )}
+
+                    {currentSlide.type === 'chart' && (
+                        <>
+                            <div className="space-y-1">
+                                <Label className="text-xs">Chart Labels (one per line)</Label>
+                                <Textarea
+                                    ref={chartLabelsTextareaRef}
+                                    value={currentSlide.labels.join('\n')}
+                                    onChange={(e) =>
+                                        handleSlideUpdate({
+                                            labels: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean),
+                                        } as Partial<Slide>)
+                                    }
+                                    className="text-xs bg-white border-[#0000001a] focus:border-[#34c759] min-h-[80px] resize-none"
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <Label className="text-xs">Chart Values (one per line)</Label>
+                                <Textarea
+                                    ref={chartValuesTextareaRef}
+                                    value={currentSlide.values.join('\n')}
+                                    onChange={(e) => {
+                                        const values = e.target.value
+                                            .split('\n')
+                                            .map((s) => Number(s.trim()))
+                                            .filter((n) => Number.isFinite(n));
+                                        handleSlideUpdate({ values } as Partial<Slide>);
+                                    }}
+                                    className="text-xs bg-white border-[#0000001a] focus:border-[#34c759] min-h-[80px] resize-none"
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <Label className="text-xs">Insights (one per line)</Label>
+                                <Textarea
+                                    ref={chartInsightsTextareaRef}
+                                    value={(currentSlide.insights || []).join('\n')}
+                                    onChange={(e) =>
+                                        handleSlideUpdate({
+                                            insights: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean),
+                                        } as Partial<Slide>)
+                                    }
+                                    className="text-xs bg-white border-[#0000001a] focus:border-[#34c759] min-h-[70px] resize-none"
+                                />
+                            </div>
+                        </>
+                    )}
+
                     {currentSlide.type === 'imageWithCaption' && (
                         <div className="space-y-2">
                             <Label className="text-xs">Custom Image</Label>
@@ -505,6 +608,26 @@ export default function PropertiesPanel() {
                                         key={value}
                                         onClick={() => updateLayoutHint('mediaPosition', value)}
                                         className={`h-8 rounded-md border text-xs font-medium capitalize ${currentSlide.layoutHints?.mediaPosition === value
+                                            ? 'border-[#34c759]/40 bg-[#34c759]/10 text-[#1d1d1f]'
+                                            : 'border-[#0000001a] bg-white text-muted-foreground hover:bg-[#f4f7f4]'
+                                            }`}
+                                    >
+                                        {value}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {currentSlide.type === 'chart' && (
+                        <div className="space-y-1.5">
+                            <Label className="text-xs">Chart Type</Label>
+                            <div className="grid grid-cols-3 gap-1.5">
+                                {['bar', 'line', 'pie'].map((value) => (
+                                    <button
+                                        key={value}
+                                        onClick={() => handleSlideUpdate({ chartType: value as 'bar' | 'line' | 'pie' } as Partial<Slide>)}
+                                        className={`h-8 rounded-md border text-xs font-medium uppercase ${currentSlide.chartType === value
                                             ? 'border-[#34c759]/40 bg-[#34c759]/10 text-[#1d1d1f]'
                                             : 'border-[#0000001a] bg-white text-muted-foreground hover:bg-[#f4f7f4]'
                                             }`}

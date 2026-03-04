@@ -9,8 +9,10 @@ export const SlideTypeEnum = z.enum([
     'bullets',
     'twoColumn',
     'quote',
+    'chart',
     'imageWithCaption',
     'sectionHeader',
+    'designerCanvas',
 ]);
 
 export type SlideType = z.infer<typeof SlideTypeEnum>;
@@ -60,6 +62,16 @@ export const QuoteSlideSchema = z.object({
     attribution: z.string().optional(),
 });
 
+export const ChartSlideSchema = z.object({
+    ...BaseSlideFields,
+    type: z.literal('chart'),
+    title: z.string(),
+    chartType: z.enum(['bar', 'line', 'pie']).default('bar'),
+    labels: z.array(z.string()).min(2).max(12),
+    values: z.array(z.number()).min(2).max(12),
+    insights: z.array(z.string()).max(4).optional(),
+});
+
 export const ImageWithCaptionSlideSchema = z.object({
     ...BaseSlideFields,
     type: z.literal('imageWithCaption'),
@@ -76,6 +88,70 @@ export const SectionHeaderSlideSchema = z.object({
     subtitle: z.string().optional(),
 });
 
+const CanvasElementBase = z.object({
+    id: z.string(),
+    x: z.number().min(0).max(100),
+    y: z.number().min(0).max(100),
+    w: z.number().min(1).max(100),
+    h: z.number().min(1).max(100),
+});
+
+const CanvasTextElementSchema = CanvasElementBase.extend({
+    kind: z.literal('text'),
+    text: z.string(),
+    style: z
+        .object({
+            color: z.string().optional(),
+            fontSize: z.number().min(8).max(120).optional(),
+            fontWeight: z.enum(['normal', 'medium', 'semibold', 'bold']).optional(),
+            align: z.enum(['left', 'center', 'right']).optional(),
+            italic: z.boolean().optional(),
+        })
+        .optional(),
+});
+
+const CanvasShapeElementSchema = CanvasElementBase.extend({
+    kind: z.literal('shape'),
+    shape: z.enum(['rect', 'roundedRect', 'circle', 'line']),
+    style: z
+        .object({
+            fill: z.string().optional(),
+            stroke: z.string().optional(),
+            strokeWidth: z.number().min(0).max(20).optional(),
+            opacity: z.number().min(0).max(1).optional(),
+        })
+        .optional(),
+});
+
+const CanvasImageElementSchema = CanvasElementBase.extend({
+    kind: z.literal('image'),
+    imageUrl: z.string().optional(),
+    prompt: z.string().optional(),
+    fit: z.enum(['cover', 'contain']).optional(),
+});
+
+const CanvasChartElementSchema = CanvasElementBase.extend({
+    kind: z.literal('chart'),
+    chartType: z.enum(['bar', 'line', 'pie']).default('bar'),
+    labels: z.array(z.string()).min(2).max(12),
+    values: z.array(z.number()).min(2).max(12),
+});
+
+export const CanvasElementSchema = z.discriminatedUnion('kind', [
+    CanvasTextElementSchema,
+    CanvasShapeElementSchema,
+    CanvasImageElementSchema,
+    CanvasChartElementSchema,
+]);
+
+export const DesignerCanvasSlideSchema = z.object({
+    ...BaseSlideFields,
+    type: z.literal('designerCanvas'),
+    title: z.string(),
+    background: z.string().optional(),
+    elements: z.array(CanvasElementSchema).min(1).max(30),
+});
+
 // ─── Discriminated Union ───────────────────────────────────
 
 export const SlideSchema = z.discriminatedUnion('type', [
@@ -84,8 +160,10 @@ export const SlideSchema = z.discriminatedUnion('type', [
     BulletsSlideSchema,
     TwoColumnSlideSchema,
     QuoteSlideSchema,
+    ChartSlideSchema,
     ImageWithCaptionSlideSchema,
     SectionHeaderSlideSchema,
+    DesignerCanvasSlideSchema,
 ]);
 
 export type Slide = z.infer<typeof SlideSchema>;
@@ -111,6 +189,7 @@ export const GenerateInputSchema = z.object({
     tone: z.enum(['professional', 'casual', 'academic', 'creative', 'persuasive']).default('professional'),
     slideCount: z.number().int().min(3).max(20).default(8),
     themeId: z.enum(THEME_IDS).default('minimal'),
+    generationMode: z.enum(['standard', 'advancedLayout']).default('standard'),
     includeSpeakerNotes: z.boolean().default(false),
     brandColor: z.string().optional(),
     additionalInstructions: z.string().max(500).optional(),
