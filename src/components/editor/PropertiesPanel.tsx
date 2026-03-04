@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
-import { RefreshCw, Loader2, Type, Palette, SlidersHorizontal } from 'lucide-react';
+import { RefreshCw, Loader2, Type, Palette, SlidersHorizontal, Upload, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -20,12 +20,24 @@ export default function PropertiesPanel() {
         setTitle,
         setSubtitle,
         setDeckSpec,
+        activeEditField,
+        setActiveEditField,
     } = useDeckStore();
 
     const [regenInstruction, setRegenInstruction] = useState('');
     const [isRegenerating, setIsRegenerating] = useState(false);
 
     const currentSlide = deckSpec?.slides[selectedSlideIndex];
+    const titleInputRef = useRef<HTMLInputElement>(null);
+    const subtitleInputRef = useRef<HTMLInputElement>(null);
+    const bulletsTextareaRef = useRef<HTMLTextAreaElement>(null);
+    const quoteTextareaRef = useRef<HTMLTextAreaElement>(null);
+    const attributionInputRef = useRef<HTMLInputElement>(null);
+    const leftTextareaRef = useRef<HTMLTextAreaElement>(null);
+    const rightTextareaRef = useRef<HTMLTextAreaElement>(null);
+    const captionInputRef = useRef<HTMLInputElement>(null);
+    const imagePromptTextareaRef = useRef<HTMLTextAreaElement>(null);
+    const imageUploadInputRef = useRef<HTMLInputElement>(null);
 
     const readApiError = async (res: Response, fallback: string) => {
         try {
@@ -82,6 +94,62 @@ export default function PropertiesPanel() {
             setIsRegenerating(false);
         }
     }, [deckSpec, selectedSlideIndex, regenInstruction, setDeckSpec]);
+
+    const handleImageUpload = useCallback(
+        (file: File) => {
+            if (!file.type.startsWith('image/')) {
+                toast.error('Please upload a valid image file.');
+                return;
+            }
+            if (file.size > 8 * 1024 * 1024) {
+                toast.error('Image size must be under 8MB.');
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = () => {
+                const dataUrl = typeof reader.result === 'string' ? reader.result : '';
+                if (!dataUrl) {
+                    toast.error('Failed to read image file.');
+                    return;
+                }
+                handleSlideUpdate({ imageUrl: dataUrl } as Partial<Slide>);
+                toast.success('Image uploaded.');
+            };
+            reader.onerror = () => toast.error('Could not process image.');
+            reader.readAsDataURL(file);
+        },
+        [handleSlideUpdate]
+    );
+
+    const clearUploadedImage = useCallback(() => {
+        handleSlideUpdate({ imageUrl: undefined } as Partial<Slide>);
+        toast.info('Custom image removed.');
+    }, [handleSlideUpdate]);
+
+    useEffect(() => {
+        if (!activeEditField) return;
+
+        const refMap: Record<string, React.RefObject<HTMLInputElement | HTMLTextAreaElement | null>> = {
+            title: titleInputRef,
+            subtitle: subtitleInputRef,
+            bullets: bulletsTextareaRef,
+            quote: quoteTextareaRef,
+            attribution: attributionInputRef,
+            left: leftTextareaRef,
+            right: rightTextareaRef,
+            caption: captionInputRef,
+            imagePrompt: imagePromptTextareaRef,
+        };
+
+        const target = refMap[activeEditField]?.current;
+        if (target) {
+            target.focus();
+            if ('select' in target && typeof target.select === 'function') {
+                target.select();
+            }
+        }
+        setActiveEditField(null);
+    }, [activeEditField, selectedSlideIndex, setActiveEditField]);
 
     if (!deckSpec || !currentSlide) return null;
 
@@ -157,10 +225,11 @@ export default function PropertiesPanel() {
                     {'title' in currentSlide && (
                         <div className="space-y-1">
                             <Label className="text-xs">Title</Label>
-                            <Input
-                                value={(currentSlide as { title: string }).title}
-                                onChange={(e) => handleSlideUpdate({ title: e.target.value } as Partial<Slide>)}
-                                className="text-xs bg-white border-[#0000001a] focus:border-[#34c759] h-8"
+                        <Input
+                            ref={titleInputRef}
+                            value={(currentSlide as { title: string }).title}
+                            onChange={(e) => handleSlideUpdate({ title: e.target.value } as Partial<Slide>)}
+                            className="text-xs bg-white border-[#0000001a] focus:border-[#34c759] h-8"
                             />
                         </div>
                     )}
@@ -169,6 +238,7 @@ export default function PropertiesPanel() {
                         <div className="space-y-1">
                             <Label className="text-xs">Subtitle</Label>
                             <Input
+                                ref={subtitleInputRef}
                                 value={(currentSlide as { subtitle: string }).subtitle || ''}
                                 onChange={(e) => handleSlideUpdate({ subtitle: e.target.value } as Partial<Slide>)}
                                 className="text-xs bg-white border-[#0000001a] focus:border-[#34c759] h-8"
@@ -180,6 +250,7 @@ export default function PropertiesPanel() {
                         <div className="space-y-1">
                             <Label className="text-xs">Bullets (one per line)</Label>
                             <Textarea
+                                ref={bulletsTextareaRef}
                                 value={(currentSlide as { bullets: string[] }).bullets.join('\n')}
                                 onChange={(e) => handleSlideUpdate({ bullets: e.target.value.split('\n') } as Partial<Slide>)}
                                 className="text-xs bg-white border-[#0000001a] focus:border-[#34c759] min-h-[100px] resize-none"
@@ -191,6 +262,7 @@ export default function PropertiesPanel() {
                         <div className="space-y-1">
                             <Label className="text-xs">Quote</Label>
                             <Textarea
+                                ref={quoteTextareaRef}
                                 value={(currentSlide as { quote: string }).quote}
                                 onChange={(e) => handleSlideUpdate({ quote: e.target.value } as Partial<Slide>)}
                                 className="text-xs bg-white border-[#0000001a] focus:border-[#34c759] min-h-[80px] resize-none"
@@ -202,6 +274,7 @@ export default function PropertiesPanel() {
                         <div className="space-y-1">
                             <Label className="text-xs">Attribution</Label>
                             <Input
+                                ref={attributionInputRef}
                                 value={(currentSlide as { attribution?: string }).attribution || ''}
                                 onChange={(e) => handleSlideUpdate({ attribution: e.target.value } as Partial<Slide>)}
                                 className="text-xs bg-white border-[#0000001a] focus:border-[#34c759] h-8"
@@ -214,6 +287,7 @@ export default function PropertiesPanel() {
                             <div className="space-y-1">
                                 <Label className="text-xs">Left Column (one per line)</Label>
                                 <Textarea
+                                    ref={leftTextareaRef}
                                     value={(currentSlide as { left: string[] }).left.join('\n')}
                                     onChange={(e) => handleSlideUpdate({ left: e.target.value.split('\n') } as Partial<Slide>)}
                                     className="text-xs bg-white border-[#0000001a] focus:border-[#34c759] min-h-[80px] resize-none"
@@ -222,6 +296,7 @@ export default function PropertiesPanel() {
                             <div className="space-y-1">
                                 <Label className="text-xs">Right Column (one per line)</Label>
                                 <Textarea
+                                    ref={rightTextareaRef}
                                     value={(currentSlide as { right: string[] }).right.join('\n')}
                                     onChange={(e) => handleSlideUpdate({ right: e.target.value.split('\n') } as Partial<Slide>)}
                                     className="text-xs bg-white border-[#0000001a] focus:border-[#34c759] min-h-[80px] resize-none"
@@ -234,6 +309,7 @@ export default function PropertiesPanel() {
                         <div className="space-y-1">
                             <Label className="text-xs">Caption</Label>
                             <Input
+                                ref={captionInputRef}
                                 value={(currentSlide as { caption: string }).caption}
                                 onChange={(e) => handleSlideUpdate({ caption: e.target.value } as Partial<Slide>)}
                                 className="text-xs bg-white border-[#0000001a] focus:border-[#34c759] h-8"
@@ -245,10 +321,61 @@ export default function PropertiesPanel() {
                         <div className="space-y-1">
                             <Label className="text-xs">Image Prompt</Label>
                             <Textarea
+                                ref={imagePromptTextareaRef}
                                 value={(currentSlide as { imagePrompt: string }).imagePrompt}
                                 onChange={(e) => handleSlideUpdate({ imagePrompt: e.target.value } as Partial<Slide>)}
                                 className="text-xs bg-white border-[#0000001a] focus:border-[#34c759] min-h-[60px] resize-none"
                             />
+                        </div>
+                    )}
+
+                    {currentSlide.type === 'imageWithCaption' && (
+                        <div className="space-y-2">
+                            <Label className="text-xs">Custom Image</Label>
+                            <input
+                                ref={imageUploadInputRef}
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) handleImageUpload(file);
+                                    e.currentTarget.value = '';
+                                }}
+                            />
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 text-xs"
+                                    onClick={() => imageUploadInputRef.current?.click()}
+                                >
+                                    <Upload className="w-3.5 h-3.5 mr-1.5" />
+                                    Upload Image
+                                </Button>
+                                {(currentSlide as { imageUrl?: string }).imageUrl && (
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="ghost"
+                                        className="h-8 text-xs text-destructive hover:text-destructive"
+                                        onClick={clearUploadedImage}
+                                    >
+                                        <X className="w-3.5 h-3.5 mr-1.5" />
+                                        Remove
+                                    </Button>
+                                )}
+                            </div>
+                            {(currentSlide as { imageUrl?: string }).imageUrl && (
+                                <div className="rounded-md overflow-hidden border border-[#00000014] bg-[#f4f7f4]">
+                                    <img
+                                        src={(currentSlide as { imageUrl?: string }).imageUrl}
+                                        alt="Uploaded slide"
+                                        className="w-full h-28 object-cover"
+                                    />
+                                </div>
+                            )}
                         </div>
                     )}
 

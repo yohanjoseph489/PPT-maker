@@ -8,6 +8,7 @@ interface DeckStore {
     selectedSlideIndex: number;
     isGenerating: boolean;
     generationProgress: string;
+    activeEditField: string | null;
     reduce3D: boolean;
     disable3D: boolean;
 
@@ -30,6 +31,7 @@ interface DeckStore {
     // Generation state
     setGenerating: (generating: boolean) => void;
     setProgress: (progress: string) => void;
+    setActiveEditField: (field: string | null) => void;
 
     // Preferences
     setReduce3D: (reduce: boolean) => void;
@@ -42,6 +44,7 @@ export const useDeckStore = create<DeckStore>((set) => ({
     selectedSlideIndex: 0,
     isGenerating: false,
     generationProgress: '',
+    activeEditField: null,
     reduce3D: false,
     disable3D: false,
 
@@ -126,6 +129,7 @@ export const useDeckStore = create<DeckStore>((set) => ({
     // Generation
     setGenerating: (generating) => set({ isGenerating: generating }),
     setProgress: (progress) => set({ generationProgress: progress }),
+    setActiveEditField: (field) => set({ activeEditField: field }),
 
     // Preferences
     setReduce3D: (reduce) => set({ reduce3D: reduce }),

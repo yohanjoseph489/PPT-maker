@@ -6,6 +6,7 @@ import type { ThemeDefinition } from '@/lib/themes';
 interface SlidePreviewProps {
     slide: Slide;
     theme: ThemeDefinition;
+    onRequestEdit?: (field: string) => void;
 }
 
 const clamp = (value: string, max = 160) => {
@@ -20,7 +21,7 @@ const sanitizeList = (items: string[] | undefined, maxItems: number, maxChars: n
         .filter(Boolean)
         .slice(0, maxItems);
 
-export default function SlidePreview({ slide, theme }: SlidePreviewProps) {
+export default function SlidePreview({ slide, theme, onRequestEdit }: SlidePreviewProps) {
     const bg = theme.colors.background;
     const text = theme.colors.text;
     const secondary = theme.colors.textSecondary;
@@ -46,6 +47,9 @@ export default function SlidePreview({ slide, theme }: SlidePreviewProps) {
     const mediaPosition = slide.layoutHints?.mediaPosition === 'bottom' ? 'bottom' : 'top';
     const split = slide.layoutHints?.split || '50:50';
     const twoColTemplate = split === '60:40' ? '60% 40%' : split === '40:60' ? '40% 60%' : '1fr 1fr';
+    const requestEdit = (field: string) => {
+        if (onRequestEdit) onRequestEdit(field);
+    };
 
     switch (slide.type) {
         case 'cover': {
@@ -62,11 +66,16 @@ export default function SlidePreview({ slide, theme }: SlidePreviewProps) {
                     <h1
                         style={{ fontFamily: heading, color: text }}
                         className={`${titleSize === 'large' ? 'text-5xl lg:text-6xl' : 'text-4xl lg:text-5xl'} font-bold leading-[1.08] mb-3 ${align === 'left' ? 'pl-6' : ''} break-words`}
+                        onClick={() => requestEdit('title')}
                     >
                         {title}
                     </h1>
                     {subtitle && (
-                        <p style={{ color: secondary }} className={`text-xl lg:text-2xl ${align === 'left' ? 'pl-6' : ''} break-words`}>
+                        <p
+                            style={{ color: secondary }}
+                            className={`text-xl lg:text-2xl ${align === 'left' ? 'pl-6' : ''} break-words`}
+                            onClick={() => requestEdit('subtitle')}
+                        >
                             {subtitle}
                         </p>
                     )}
@@ -82,7 +91,7 @@ export default function SlidePreview({ slide, theme }: SlidePreviewProps) {
             return (
                 <div style={containerStyle} className={`flex flex-col px-[8%] py-[6%] ${align === 'center' ? 'text-center' : ''}`}>
                     <h2 style={{ fontFamily: heading }} className="text-2xl lg:text-3xl font-bold mb-6 break-words">
-                        {title}
+                        <span onClick={() => requestEdit('title')}>{title}</span>
                     </h2>
                     <div className={`${density === 'compact' ? 'space-y-2' : 'space-y-3'} flex-1 overflow-hidden`}>
                         {bullets.length > 0 ? (
@@ -92,6 +101,7 @@ export default function SlidePreview({ slide, theme }: SlidePreviewProps) {
                                     <p
                                         style={{ color: text }}
                                         className={`${density === 'compact' ? 'text-sm lg:text-base' : 'text-base lg:text-lg'} leading-relaxed ${align === 'center' ? 'max-w-[85%]' : ''} break-words`}
+                                        onClick={() => requestEdit('bullets')}
                                     >
                                         {bullet}
                                     </p>
@@ -116,7 +126,7 @@ export default function SlidePreview({ slide, theme }: SlidePreviewProps) {
             return (
                 <div style={containerStyle} className={`flex flex-col px-[8%] py-[6%] ${align === 'center' ? 'text-center' : ''}`}>
                     <h2 style={{ fontFamily: heading }} className="text-2xl lg:text-3xl font-bold mb-6 break-words">
-                        {title}
+                        <span onClick={() => requestEdit('title')}>{title}</span>
                     </h2>
                     <div className="flex-1 grid gap-6 overflow-hidden" style={{ gridTemplateColumns: twoColTemplate }}>
                         <div className="space-y-2">
@@ -125,7 +135,7 @@ export default function SlidePreview({ slide, theme }: SlidePreviewProps) {
                                     <div key={i} className={`flex items-start gap-2 ${align === 'center' ? 'justify-center' : ''}`}>
                                         <div className="w-1.5 h-1.5 rounded-full mt-2 flex-shrink-0" style={{ background: primary }} />
                                         <p style={{ color: text }} className="text-sm lg:text-base break-words">
-                                            {item}
+                                            <span onClick={() => requestEdit('left')}>{item}</span>
                                         </p>
                                     </div>
                                 ))
@@ -141,7 +151,7 @@ export default function SlidePreview({ slide, theme }: SlidePreviewProps) {
                                     <div key={i} className={`flex items-start gap-2 ${align === 'center' ? 'justify-center' : ''}`}>
                                         <div className="w-1.5 h-1.5 rounded-full mt-2 flex-shrink-0" style={{ background: primary, opacity: 0.7 }} />
                                         <p style={{ color: text }} className="text-sm lg:text-base break-words">
-                                            {item}
+                                            <span onClick={() => requestEdit('right')}>{item}</span>
                                         </p>
                                     </div>
                                 ))
@@ -168,10 +178,15 @@ export default function SlidePreview({ slide, theme }: SlidePreviewProps) {
                     <blockquote
                         style={{ fontFamily: heading, color: text }}
                         className={`${quoteEmphasis === 'large' ? 'text-2xl lg:text-3xl' : 'text-xl lg:text-2xl'} italic leading-relaxed mb-4 break-words`}
+                        onClick={() => requestEdit('quote')}
                     >
                         {quote}
                     </blockquote>
-                    {attribution && <p style={{ color: secondary }} className="text-base break-words">— {attribution}</p>}
+                    {attribution && (
+                        <p style={{ color: secondary }} className="text-base break-words" onClick={() => requestEdit('attribution')}>
+                            — {attribution}
+                        </p>
+                    )}
                     <div className="absolute bottom-0 left-0 right-0 h-0.5" style={{ background: primary, opacity: 0.6 }} />
                 </div>
             );
@@ -181,30 +196,41 @@ export default function SlidePreview({ slide, theme }: SlidePreviewProps) {
             const title = clamp(slide.title || '', 68);
             const prompt = clamp(slide.imagePrompt || 'No image prompt yet', 140);
             const caption = clamp(slide.caption || 'Add a caption in the Properties panel.', 120);
+            const imageUrl = slide.imageUrl?.trim() || '';
 
             return (
                 <div style={containerStyle} className={`flex flex-col px-[8%] py-[6%] ${align === 'center' ? 'text-center' : ''}`}>
                     {title && (
                         <h2 style={{ fontFamily: heading }} className="text-xl lg:text-2xl font-bold mb-4 break-words">
-                            {title}
+                            <span onClick={() => requestEdit('title')}>{title}</span>
                         </h2>
                     )}
                     <div
                         className={`rounded-lg flex items-center justify-center ${mediaPosition === 'top' ? 'flex-1 order-1' : 'h-[55%] order-2 mt-3'}`}
                         style={{ background: surface, border: `1px solid ${primary}30` }}
                     >
-                        <div className="text-center px-5">
-                            <p style={{ color: secondary }} className="text-sm italic break-words">
-                                [{prompt}]
-                            </p>
-                            <p style={{ color: secondary, opacity: 0.8 }} className="text-[11px] mt-1">
-                                Image placeholder
-                            </p>
-                        </div>
+                        {imageUrl ? (
+                            <img
+                                src={imageUrl}
+                                alt={caption || 'Slide image'}
+                                className="w-full h-full object-cover rounded-lg"
+                                onClick={() => requestEdit('imagePrompt')}
+                            />
+                        ) : (
+                            <div className="text-center px-5">
+                                <p style={{ color: secondary }} className="text-sm italic break-words">
+                                    <span onClick={() => requestEdit('imagePrompt')}>[{prompt}]</span>
+                                </p>
+                                <p style={{ color: secondary, opacity: 0.8 }} className="text-[11px] mt-1">
+                                    Image placeholder
+                                </p>
+                            </div>
+                        )}
                     </div>
                     <p
                         style={{ color: text }}
                         className={`text-sm ${align === 'center' ? 'text-center' : ''} ${mediaPosition === 'top' ? 'mt-3 order-2' : 'order-1'} break-words`}
+                        onClick={() => requestEdit('caption')}
                     >
                         {caption}
                     </p>
@@ -225,11 +251,12 @@ export default function SlidePreview({ slide, theme }: SlidePreviewProps) {
                     <h2
                         style={{ fontFamily: heading }}
                         className={`${titleSize === 'large' ? 'text-4xl lg:text-5xl' : 'text-3xl lg:text-4xl'} font-bold ${align === 'center' ? 'text-center' : ''} mb-3 break-words`}
+                        onClick={() => requestEdit('title')}
                     >
                         {title}
                     </h2>
                     {subtitle && (
-                        <p style={{ color: secondary }} className="text-lg break-words">
+                        <p style={{ color: secondary }} className="text-lg break-words" onClick={() => requestEdit('subtitle')}>
                             {subtitle}
                         </p>
                     )}

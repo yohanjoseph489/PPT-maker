@@ -66,6 +66,7 @@ export const ImageWithCaptionSlideSchema = z.object({
     imagePrompt: z.string(),
     caption: z.string(),
     title: z.string().optional(),
+    imageUrl: z.string().optional(),
 });
 
 export const SectionHeaderSlideSchema = z.object({

@@ -253,7 +253,7 @@ function renderQuote(
 
 function renderImageWithCaption(
     slide: PptxGenJS.Slide,
-    data: { imagePrompt: string; caption: string; title?: string },
+    data: { imagePrompt: string; caption: string; title?: string; imageUrl?: string },
     config: PptxThemeConfig
 ) {
     if (data.title) {
@@ -269,29 +269,48 @@ function renderImageWithCaption(
         });
     }
 
-    // Placeholder box for image
-    slide.addShape('rect' as PptxGenJS.ShapeType, {
-        x: 1.5,
-        y: 1.5,
-        w: 10,
-        h: 4,
-        fill: { color: config.surfaceColor },
-        line: { color: config.borderColor, width: 1 },
-        rectRadius: 0.1,
-    });
+    const hasCustomImage = typeof data.imageUrl === 'string' && data.imageUrl.trim().length > 0;
+    let imageEmbedded = false;
+    if (hasCustomImage) {
+        try {
+            slide.addImage({
+                data: data.imageUrl as string,
+                x: 1.5,
+                y: 1.5,
+                w: 10,
+                h: 4,
+            });
+            imageEmbedded = true;
+        } catch {
+            // Fallback to placeholder if image embedding fails.
+        }
+    }
 
-    slide.addText(`[${data.imagePrompt}]`, {
-        x: 1.5,
-        y: 2.5,
-        w: 10,
-        h: 2,
-        fontSize: 14,
-        fontFace: config.bodyFont,
-        color: config.secondaryColor,
-        align: 'center' as PptxGenJS.HAlign,
-        valign: 'middle' as PptxGenJS.VAlign,
-        italic: true,
-    });
+    if (!imageEmbedded) {
+        // Placeholder box for image
+        slide.addShape('rect' as PptxGenJS.ShapeType, {
+            x: 1.5,
+            y: 1.5,
+            w: 10,
+            h: 4,
+            fill: { color: config.surfaceColor },
+            line: { color: config.borderColor, width: 1 },
+            rectRadius: 0.1,
+        });
+
+        slide.addText(`[${data.imagePrompt}]`, {
+            x: 1.5,
+            y: 2.5,
+            w: 10,
+            h: 2,
+            fontSize: 14,
+            fontFace: config.bodyFont,
+            color: config.secondaryColor,
+            align: 'center' as PptxGenJS.HAlign,
+            valign: 'middle' as PptxGenJS.VAlign,
+            italic: true,
+        });
+    }
 
     slide.addText(data.caption, {
         x: 1.5,

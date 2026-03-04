@@ -111,6 +111,7 @@ export default function EditorPage() {
         isGenerating,
         setGenerating,
         setDeckSpec,
+        setActiveEditField,
     } = useDeckStore();
     const [zoom, setZoom] = useState(100);
     const [isExporting, setIsExporting] = useState(false);
@@ -419,6 +420,7 @@ export default function EditorPage() {
                     <div className="h-11 border-b border-[#0000000d] bg-white/75 backdrop-blur-sm px-4 flex items-center justify-between">
                         <div className="text-xs text-zinc-600 font-medium">
                             Preview · Slide {selectedSlideIndex + 1} · {currentSlide.type}
+                            <span className="ml-2 text-[11px] text-zinc-500">· Click any text to edit</span>
                         </div>
                         <div className="flex items-center gap-1.5">
                             <Button
@@ -475,7 +477,11 @@ export default function EditorPage() {
                                 }}
                                 className="w-[960px] aspect-video rounded-xl overflow-hidden shadow-[0_20px_60px_-15px_rgba(0,0,0,0.1)] ring-1 ring-black/5 bg-white"
                             >
-                                <SlidePreview slide={currentSlide} theme={theme} />
+                                <SlidePreview
+                                    slide={currentSlide}
+                                    theme={theme}
+                                    onRequestEdit={(field) => setActiveEditField(field)}
+                                />
                             </motion.div>
                         </div>
                     </div>
