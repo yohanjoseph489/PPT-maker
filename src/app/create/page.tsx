@@ -33,6 +33,7 @@ import { experimental_useObject as useObject } from '@ai-sdk/react';
 import { useDeckStore } from '@/lib/store';
 import { themes, THEME_IDS, type ThemeId } from '@/lib/themes';
 import { DeckSpecSchema, type DeckSpec } from '@/lib/schemas/deckspec';
+import { z } from 'zod';
 
 const DOCK_ITEMS = [
     { id: 'custom', label: 'Custom Deck', icon: Sparkles, color: 'text-zinc-500' },
@@ -154,16 +155,17 @@ export default function CreatePage() {
 
     const { object, submit, isLoading } = useObject({
         api: '/api/generate',
-        schema: DeckSpecSchema,
+        schema: z.object({ deckSpec: DeckSpecSchema }),
         onFinish: ({ object, error }: { object?: any, error?: Error }) => {
             if (error) {
                 console.error('Generation finish error:', error);
                 toast.error('Failed to generate presentation. Please try again.');
                 setGenerating(false);
-            } else if (object) {
-                setDeckSpec(object as DeckSpec);
+            } else if (object?.deckSpec) {
+                const deck = object.deckSpec as DeckSpec;
+                setDeckSpec(deck);
                 toast.success('Deck generated successfully!');
-                router.push(`/editor/${object.id || 'new'}`);
+                router.push('/editor/new');
                 // Don't setGenerating(false) here immediately, let it transition smoothly
             }
         },
@@ -467,14 +469,14 @@ export default function CreatePage() {
                                 </div>
                                 <h2 className="text-2xl font-semibold tracking-tight text-[#1d1d1f] mb-2">Forging presentation...</h2>
                                 <p className="text-[#86868b] text-sm font-medium mb-8">
-                                    {object?.slides?.length ? `Drafting slide ${object.slides.length} of ${slideCount}...` : 'Analyzing parameters...'}
+                                    {object?.deckSpec?.slides?.length ? `Drafting slide ${object.deckSpec.slides.length} of ${slideCount}...` : 'Analyzing parameters...'}
                                 </p>
 
                                 <div className="w-full h-1.5 bg-[#e5e7eb] rounded-full overflow-hidden">
                                     <motion.div
                                         className="h-full bg-[#34c759] rounded-full"
                                         initial={{ width: '0%' }}
-                                        animate={{ width: `${object?.slides?.length ? (object.slides.length / slideCount) * 100 : 5}%` }}
+                                        animate={{ width: `${object?.deckSpec?.slides?.length ? (object.deckSpec.slides.length / slideCount) * 100 : 5}%` }}
                                         transition={{ duration: 0.5, ease: 'easeOut' }}
                                     />
                                 </div>
