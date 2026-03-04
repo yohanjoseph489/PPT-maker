@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import type { DeckSpec, Slide } from '@/lib/schemas/deckspec';
 import type { ThemeId } from '@/lib/themes';
 
+const MAX_HISTORY = 50;
+
 interface DeckStore {
     // State
     deckSpec: DeckSpec | null;
@@ -11,6 +13,10 @@ interface DeckStore {
     activeEditField: string | null;
     reduce3D: boolean;
     disable3D: boolean;
+
+    // Undo/Redo history
+    history: DeckSpec[];
+    historyIndex: number;
 
     // Deck actions
     setDeckSpec: (spec: DeckSpec) => void;
@@ -36,9 +42,16 @@ interface DeckStore {
     // Preferences
     setReduce3D: (reduce: boolean) => void;
     setDisable3D: (disable: boolean) => void;
+
+    // Undo/Redo
+    undo: () => void;
+    redo: () => void;
+    pushHistory: (spec: DeckSpec) => void;
+    canUndo: () => boolean;
+    canRedo: () => boolean;
 }
 
-export const useDeckStore = create<DeckStore>((set) => ({
+export const useDeckStore = create<DeckStore>((set, get) => ({
     // Initial state
     deckSpec: null,
     selectedSlideIndex: 0,
@@ -47,10 +60,41 @@ export const useDeckStore = create<DeckStore>((set) => ({
     activeEditField: null,
     reduce3D: false,
     disable3D: false,
+    history: [],
+    historyIndex: -1,
+
+    // Push to history
+    pushHistory: (spec) => {
+        const { history, historyIndex } = get();
+        const newHistory = history.slice(0, historyIndex + 1);
+        newHistory.push(JSON.parse(JSON.stringify(spec)));
+        if (newHistory.length > MAX_HISTORY) newHistory.shift();
+        set({ history: newHistory, historyIndex: Math.min(newHistory.length - 1, MAX_HISTORY - 1) });
+    },
+
+    canUndo: () => get().historyIndex > 0,
+    canRedo: () => get().historyIndex < get().history.length - 1,
+
+    undo: () => {
+        const { history, historyIndex } = get();
+        if (historyIndex <= 0) return;
+        const prev = history[historyIndex - 1];
+        set({ deckSpec: prev, historyIndex: historyIndex - 1 });
+    },
+
+    redo: () => {
+        const { history, historyIndex } = get();
+        if (historyIndex >= history.length - 1) return;
+        const next = history[historyIndex + 1];
+        set({ deckSpec: next, historyIndex: historyIndex + 1 });
+    },
 
     // Deck actions
-    setDeckSpec: (spec) => set({ deckSpec: spec, selectedSlideIndex: 0 }),
-    clearDeck: () => set({ deckSpec: null, selectedSlideIndex: 0 }),
+    setDeckSpec: (spec) => {
+        get().pushHistory(spec);
+        set({ deckSpec: spec, selectedSlideIndex: 0 });
+    },
+    clearDeck: () => set({ deckSpec: null, selectedSlideIndex: 0, history: [], historyIndex: -1 }),
 
     // Slide actions
     selectSlide: (index) => set({ selectedSlideIndex: index }),
@@ -60,7 +104,9 @@ export const useDeckStore = create<DeckStore>((set) => ({
             if (!state.deckSpec) return state;
             const slides = [...state.deckSpec.slides];
             slides[index] = { ...slides[index], ...updates } as Slide;
-            return { deckSpec: { ...state.deckSpec, slides } };
+            const newSpec = { ...state.deckSpec, slides };
+            // Push history for significant updates (not called on every keystroke in canvas drag)
+            return { deckSpec: newSpec };
         }),
 
     reorderSlides: (fromIndex, toIndex) =>

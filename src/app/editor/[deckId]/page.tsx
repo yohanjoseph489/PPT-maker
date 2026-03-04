@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useCallback, useMemo, useState, memo } from 'react';
 import { useRouter } from 'next/navigation';
@@ -31,14 +31,39 @@ import {
     ZoomIn,
     ZoomOut,
     Maximize2,
+    Type,
+    Square,
+    ImagePlus,
+    BarChart3,
+    Copy,
+    BringToFront,
+    SendToBack,
+    Undo2,
+    Redo2,
+    AlignLeft,
+    AlignCenter,
+    AlignRight,
+    AlignHorizontalDistributeCenter,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useDeckStore } from '@/lib/store';
 import SlidePreview from '@/components/editor/SlidePreview';
 import PropertiesPanel from '@/components/editor/PropertiesPanel';
+import DesignerCanvasEditor from '@/components/editor/DesignerCanvasEditor';
 import { themes } from '@/lib/themes';
 import { generateId } from '@/lib/utils';
 import type { Slide } from '@/lib/schemas/deckspec';
+import {
+    clampCanvasBounds,
+    createCanvasElement,
+    duplicateCanvasElement,
+    moveElementLayer,
+    normalizeCanvasElement,
+    type CanvasElement,
+    type CanvasElementKind,
+    type DesignerCanvasSlide,
+    type LayerDirection,
+} from '@/lib/canvas-editor';
 
 interface SlideThumbnailProps {
     slide: Slide;
@@ -105,6 +130,7 @@ export default function EditorPage() {
         deckSpec,
         selectedSlideIndex,
         selectSlide,
+        updateSlide,
         reorderSlides,
         removeSlide,
         addSlide,
@@ -112,9 +138,14 @@ export default function EditorPage() {
         setGenerating,
         setDeckSpec,
         setActiveEditField,
+        undo,
+        redo,
+        canUndo,
+        canRedo,
     } = useDeckStore();
     const [zoom, setZoom] = useState(100);
     const [isExporting, setIsExporting] = useState(false);
+    const [selectedCanvasElementId, setSelectedCanvasElementId] = useState<string | null>(null);
 
     const readApiError = async (res: Response, fallback: string) => {
         try {
@@ -147,6 +178,133 @@ export default function EditorPage() {
     );
     const slideIds = useMemo(() => deckSpec?.slides.map((s) => s.id) ?? [], [deckSpec?.slides]);
 
+    const getCurrentCanvasSlide = useCallback((): DesignerCanvasSlide | null => {
+        if (!deckSpec) return null;
+        const slide = deckSpec.slides[selectedSlideIndex];
+        return slide?.type === 'designerCanvas' ? slide : null;
+    }, [deckSpec, selectedSlideIndex]);
+
+    const updateCanvasElements = useCallback(
+        (
+            updater: (elements: DesignerCanvasSlide['elements']) => DesignerCanvasSlide['elements']
+        ) => {
+            const canvasSlide = getCurrentCanvasSlide();
+            if (!canvasSlide) return null;
+            const nextElements = updater(canvasSlide.elements).slice(0, 30).map(normalizeCanvasElement);
+            updateSlide(selectedSlideIndex, { elements: nextElements } as Partial<Slide>);
+            return nextElements;
+        },
+        [getCurrentCanvasSlide, selectedSlideIndex, updateSlide]
+    );
+
+    const handleCanvasElementsChange = useCallback(
+        (elements: DesignerCanvasSlide['elements']) => {
+            const canvasSlide = getCurrentCanvasSlide();
+            if (!canvasSlide) return;
+            updateSlide(
+                selectedSlideIndex,
+                {
+                    elements: elements.slice(0, 30).map(normalizeCanvasElement),
+                } as Partial<Slide>
+            );
+        },
+        [getCurrentCanvasSlide, selectedSlideIndex, updateSlide]
+    );
+
+    const handleAddCanvasElement = useCallback(
+        (kind: CanvasElementKind) => {
+            if (!deckSpec) return;
+            const canvasSlide = getCurrentCanvasSlide();
+            if (!canvasSlide) return;
+            if (canvasSlide.elements.length >= 30) {
+                toast.error('Canvas supports up to 30 elements per slide.');
+                return;
+            }
+
+            const created = createCanvasElement(kind, themes[deckSpec.themeId], canvasSlide.elements.length);
+            const next = updateCanvasElements((elements) => [...elements, created]);
+            if (!next) return;
+            setSelectedCanvasElementId(created.id);
+            toast.success(`${kind} element added.`);
+        },
+        [deckSpec, getCurrentCanvasSlide, updateCanvasElements]
+    );
+
+    const handleDuplicateCanvasElement = useCallback(() => {
+        if (!selectedCanvasElementId) return;
+        const canvasSlide = getCurrentCanvasSlide();
+        if (!canvasSlide) return;
+        if (canvasSlide.elements.length >= 30) {
+            toast.error('Canvas supports up to 30 elements per slide.');
+            return;
+        }
+
+        let duplicatedId: string | null = null;
+        updateCanvasElements((elements) => {
+            const index = elements.findIndex((element) => element.id === selectedCanvasElementId);
+            if (index < 0) return elements;
+            const duplicated = duplicateCanvasElement(elements[index]);
+            duplicatedId = duplicated.id;
+            const next = [...elements];
+            next.splice(index + 1, 0, duplicated);
+            return next;
+        });
+        if (duplicatedId) {
+            setSelectedCanvasElementId(duplicatedId);
+            toast.success('Element duplicated.');
+        }
+    }, [getCurrentCanvasSlide, selectedCanvasElementId, updateCanvasElements]);
+
+    const handleDeleteCanvasElement = useCallback(() => {
+        if (!selectedCanvasElementId) return;
+
+        let fallbackId: string | null = null;
+        const next = updateCanvasElements((elements) => {
+            const index = elements.findIndex((element) => element.id === selectedCanvasElementId);
+            if (index < 0) return elements;
+            const filtered = elements.filter((element) => element.id !== selectedCanvasElementId);
+            fallbackId = filtered[Math.max(0, index - 1)]?.id || null;
+            return filtered;
+        });
+
+        if (next) {
+            setSelectedCanvasElementId(fallbackId);
+            toast.info('Element deleted.');
+        }
+    }, [selectedCanvasElementId, updateCanvasElements]);
+
+    const handleMoveCanvasElementLayer = useCallback(
+        (direction: LayerDirection) => {
+            if (!selectedCanvasElementId) return;
+            updateCanvasElements((elements) => moveElementLayer(elements, selectedCanvasElementId, direction));
+        },
+        [selectedCanvasElementId, updateCanvasElements]
+    );
+
+    const handleUpdateSelectedCanvasElement = useCallback(
+        (updater: (element: CanvasElement) => CanvasElement) => {
+            if (!selectedCanvasElementId) return;
+            updateCanvasElements((elements) =>
+                elements.map((element) => (element.id === selectedCanvasElementId ? normalizeCanvasElement(updater(element)) : element))
+            );
+        },
+        [selectedCanvasElementId, updateCanvasElements]
+    );
+
+    const nudgeSelectedCanvasElement = useCallback(
+        (dx: number, dy: number) => {
+            if (!selectedCanvasElementId) return;
+            updateCanvasElements((elements) =>
+                elements.map((element) => {
+                    if (element.id !== selectedCanvasElementId) return element;
+                    const next = clampCanvasBounds(element.x + dx, element.y + dy, element.w, element.h);
+                    return { ...element, ...next };
+                })
+            );
+        },
+        [selectedCanvasElementId, updateCanvasElements]
+    );
+
     useEffect(() => {
         if (!deckSpec) {
             router.push('/create');
@@ -154,7 +312,28 @@ export default function EditorPage() {
     }, [deckSpec, router]);
 
     useEffect(() => {
+        if (!deckSpec) {
+            setSelectedCanvasElementId(null);
+            return;
+        }
+
+        const slide = deckSpec.slides[selectedSlideIndex];
+        if (!slide || slide.type !== 'designerCanvas') {
+            setSelectedCanvasElementId(null);
+            return;
+        }
+
+        if (selectedCanvasElementId && slide.elements.some((element) => element.id === selectedCanvasElementId)) {
+            return;
+        }
+
+        setSelectedCanvasElementId(slide.elements[0]?.id || null);
+    }, [deckSpec, selectedSlideIndex, selectedCanvasElementId]);
+
+    useEffect(() => {
         const handler = (e: KeyboardEvent) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return; }
+            if ((e.metaKey || e.ctrlKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); redo(); return; }
             if ((e.metaKey || e.ctrlKey) && e.key === 's') {
                 e.preventDefault();
                 toast.success('Deck saved to browser.');
@@ -172,6 +351,60 @@ export default function EditorPage() {
 
             if (isTypingField) return;
 
+            const currentSlide = deckSpec.slides[selectedSlideIndex];
+            if (currentSlide?.type === 'designerCanvas' && selectedCanvasElementId) {
+                const step = e.shiftKey ? 1 : 0.2;
+                const key = e.key.toLowerCase();
+
+                if ((e.metaKey || e.ctrlKey) && key === 'd') {
+                    e.preventDefault();
+                    handleDuplicateCanvasElement();
+                    return;
+                }
+
+                if (e.key === 'Delete' || e.key === 'Backspace') {
+                    e.preventDefault();
+                    handleDeleteCanvasElement();
+                    return;
+                }
+
+                if ((e.metaKey || e.ctrlKey) && e.key === ']') {
+                    e.preventDefault();
+                    handleMoveCanvasElementLayer('forward');
+                    return;
+                }
+
+                if ((e.metaKey || e.ctrlKey) && e.key === '[') {
+                    e.preventDefault();
+                    handleMoveCanvasElementLayer('backward');
+                    return;
+                }
+
+                if (e.key === 'ArrowLeft') {
+                    e.preventDefault();
+                    nudgeSelectedCanvasElement(-step, 0);
+                    return;
+                }
+
+                if (e.key === 'ArrowRight') {
+                    e.preventDefault();
+                    nudgeSelectedCanvasElement(step, 0);
+                    return;
+                }
+
+                if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    nudgeSelectedCanvasElement(0, -step);
+                    return;
+                }
+
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    nudgeSelectedCanvasElement(0, step);
+                    return;
+                }
+            }
+
             if (e.key === 'ArrowUp' && selectedSlideIndex > 0) {
                 e.preventDefault();
                 selectSlide(selectedSlideIndex - 1);
@@ -182,7 +415,16 @@ export default function EditorPage() {
         };
         document.addEventListener('keydown', handler);
         return () => document.removeEventListener('keydown', handler);
-    }, [deckSpec, selectedSlideIndex, selectSlide]);
+    }, [
+        deckSpec,
+        selectedSlideIndex,
+        selectedCanvasElementId,
+        selectSlide,
+        handleDeleteCanvasElement,
+        handleDuplicateCanvasElement,
+        handleMoveCanvasElementLayer,
+        nudgeSelectedCanvasElement,
+    ]);
 
     const handleExport = useCallback(async () => {
         if (!deckSpec || isExporting) return;
@@ -294,23 +536,49 @@ export default function EditorPage() {
 
     const currentSlide = deckSpec.slides[selectedSlideIndex];
     const theme = themes[deckSpec.themeId];
+    const canvasSlide = currentSlide.type === 'designerCanvas' ? currentSlide : null;
+    const selectedCanvasElement = canvasSlide?.elements.find((element) => element.id === selectedCanvasElementId) || null;
 
     return (
-        <div className="h-screen flex flex-col bg-background overflow-hidden">
-            <header className="h-14 border-b border-[#0000000d] bg-white flex items-center justify-between px-4 flex-shrink-0 z-10 shadow-sm">
-                <div className="flex items-center gap-3">
+        <div className="h-screen flex flex-col bg-[#f0f0f3] overflow-hidden">
+            {/* ── Top Header ── */}
+            <header className="h-14 border-b border-zinc-200 bg-white flex items-center justify-between px-4 flex-shrink-0 z-20 shadow-sm">
+                <div className="flex items-center gap-3 min-w-0">
                     <Link
                         href="/create"
                         aria-label="Back to create page"
-                        className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                        className="flex items-center gap-1.5 text-sm text-zinc-400 hover:text-zinc-700 transition-colors flex-shrink-0"
                     >
                         <ArrowLeft className="w-4 h-4" />
+                        <span className="text-xs font-medium hidden sm:block">Back</span>
                     </Link>
-                    <div className="w-px h-5 bg-white/10" />
-                    <h1 className="text-sm font-semibold truncate max-w-[300px]">{deckSpec.title}</h1>
-                    <span className="text-xs text-[#86868b] bg-[#f4f7f4] px-2 py-0.5 rounded-full border border-[#0000000d] font-medium">
-                        {deckSpec.slides.length} slides
-                    </span>
+                    <div className="w-px h-5 bg-zinc-200 flex-shrink-0" />
+                    <div className="flex items-center gap-2 min-w-0">
+                        <h1 className="text-sm font-bold truncate max-w-[220px] text-zinc-800">{deckSpec.title}</h1>
+                        <span className="text-xs text-zinc-400 bg-zinc-100 px-2 py-0.5 rounded-full border border-zinc-200 font-medium flex-shrink-0">
+                            {deckSpec.slides.length} slides
+                        </span>
+                    </div>
+                </div>
+
+                {/* Center: Undo/Redo */}
+                <div className="flex items-center gap-1.5 absolute left-1/2 -translate-x-1/2">
+                    <button
+                        onClick={undo}
+                        disabled={!canUndo()}
+                        title="Undo (Ctrl+Z)"
+                        className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-zinc-100 text-zinc-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    >
+                        <Undo2 size={15} />
+                    </button>
+                    <button
+                        onClick={redo}
+                        disabled={!canRedo()}
+                        title="Redo (Ctrl+Shift+Z)"
+                        className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-zinc-100 text-zinc-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    >
+                        <Redo2 size={15} />
+                    </button>
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -321,14 +589,14 @@ export default function EditorPage() {
                         disabled={isGenerating}
                         aria-label="Regenerate entire deck"
                         aria-busy={isGenerating}
-                        className="bg-white border-[#0000001a] hover:bg-[#f4f7f4] text-xs font-medium text-[#1d1d1f]"
+                        className="bg-white border-zinc-200 hover:bg-zinc-50 text-xs font-medium text-zinc-700 h-8"
                     >
                         {isGenerating ? (
                             <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
                         ) : (
                             <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
                         )}
-                        Regenerate All
+                        Regenerate
                     </Button>
 
                     <Button
@@ -337,7 +605,7 @@ export default function EditorPage() {
                         disabled={isExporting}
                         aria-label="Download presentation as PPTX"
                         aria-busy={isExporting}
-                        className="bg-[#34c759] hover:bg-[#28a745] text-white border-0 shadow-sm transition-all duration-300 rounded-lg text-xs font-semibold px-4"
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white border-0 shadow-sm transition-all rounded-lg text-xs font-semibold px-4 h-8"
                     >
                         {isExporting ? (
                             <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
@@ -350,7 +618,7 @@ export default function EditorPage() {
             </header>
 
             <div className="flex-1 flex overflow-hidden">
-                <aside className="w-[200px] border-r border-[#0000000d] flex flex-col flex-shrink-0 bg-[#f4f7f4]">
+                <aside className="w-[188px] border-r border-zinc-200 flex flex-col flex-shrink-0 bg-zinc-100/80">
                     <div className="flex-1 overflow-y-auto p-3 space-y-2">
                         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                             <SortableContext items={slideIds} strategy={verticalListSortingStrategy}>
@@ -416,13 +684,106 @@ export default function EditorPage() {
                     </div>
                 </aside>
 
-                <div className="flex-1 flex flex-col bg-[#e5e7eb]/50">
-                    <div className="h-11 border-b border-[#0000000d] bg-white/75 backdrop-blur-sm px-4 flex items-center justify-between">
-                        <div className="text-xs text-zinc-600 font-medium">
-                            Preview · Slide {selectedSlideIndex + 1} · {currentSlide.type}
-                            <span className="ml-2 text-[11px] text-zinc-500">· Click any text to edit</span>
+                <div className="flex-1 flex flex-col bg-zinc-200/40">
+                    {/* Secondary toolbar */}
+                    <div className="border-b border-zinc-200 bg-white/90 backdrop-blur-sm px-3 py-1.5 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 text-xs text-zinc-500 font-medium">
+                            <span className="bg-zinc-100 px-2 py-0.5 rounded-md text-[10px] font-semibold text-zinc-600 border border-zinc-200">
+                                Slide {selectedSlideIndex + 1} / {deckSpec.slides.length}
+                            </span>
+                            <span className="text-zinc-300">|</span>
+                            <span className="text-zinc-500 text-[11px] capitalize">{currentSlide.type}</span>
                         </div>
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-2">
+                            {canvasSlide && (
+                                <div className="flex items-center gap-1 rounded-md border border-[#00000014] bg-white p-1">
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7"
+                                        onClick={() => handleAddCanvasElement('text')}
+                                        title="Add text"
+                                        aria-label="Add text element"
+                                    >
+                                        <Type className="w-3.5 h-3.5" />
+                                    </Button>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7"
+                                        onClick={() => handleAddCanvasElement('shape')}
+                                        title="Add shape"
+                                        aria-label="Add shape element"
+                                    >
+                                        <Square className="w-3.5 h-3.5" />
+                                    </Button>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7"
+                                        onClick={() => handleAddCanvasElement('image')}
+                                        title="Add image frame"
+                                        aria-label="Add image element"
+                                    >
+                                        <ImagePlus className="w-3.5 h-3.5" />
+                                    </Button>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7"
+                                        onClick={() => handleAddCanvasElement('chart')}
+                                        title="Add chart"
+                                        aria-label="Add chart element"
+                                    >
+                                        <BarChart3 className="w-3.5 h-3.5" />
+                                    </Button>
+                                    <div className="w-px h-5 bg-[#00000014] mx-0.5" />
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7"
+                                        onClick={handleDuplicateCanvasElement}
+                                        disabled={!selectedCanvasElement}
+                                        title="Duplicate selected"
+                                        aria-label="Duplicate selected element"
+                                    >
+                                        <Copy className="w-3.5 h-3.5" />
+                                    </Button>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7"
+                                        onClick={() => handleMoveCanvasElementLayer('forward')}
+                                        disabled={!selectedCanvasElement}
+                                        title="Bring forward"
+                                        aria-label="Bring selected element forward"
+                                    >
+                                        <BringToFront className="w-3.5 h-3.5" />
+                                    </Button>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7"
+                                        onClick={() => handleMoveCanvasElementLayer('backward')}
+                                        disabled={!selectedCanvasElement}
+                                        title="Send backward"
+                                        aria-label="Send selected element backward"
+                                    >
+                                        <SendToBack className="w-3.5 h-3.5" />
+                                    </Button>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7 text-destructive hover:text-destructive"
+                                        onClick={handleDeleteCanvasElement}
+                                        disabled={!selectedCanvasElement}
+                                        title="Delete selected"
+                                        aria-label="Delete selected element"
+                                    >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                    </Button>
+                                </div>
+                            )}
                             <Button
                                 variant="ghost"
                                 size="icon"
@@ -477,26 +838,52 @@ export default function EditorPage() {
                                 }}
                                 className="w-[960px] aspect-video rounded-xl overflow-hidden shadow-[0_20px_60px_-15px_rgba(0,0,0,0.1)] ring-1 ring-black/5 bg-white"
                             >
-                                <SlidePreview
-                                    slide={currentSlide}
-                                    theme={theme}
-                                    onRequestEdit={(field) => setActiveEditField(field)}
-                                />
+                                {canvasSlide ? (
+                                    <DesignerCanvasEditor
+                                        slide={canvasSlide}
+                                        theme={theme}
+                                        selectedElementId={selectedCanvasElementId}
+                                        onSelectElement={setSelectedCanvasElementId}
+                                        onElementsChange={handleCanvasElementsChange}
+                                        onDuplicate={handleDuplicateCanvasElement}
+                                        onDelete={handleDeleteCanvasElement}
+                                        onLayerForward={() => handleMoveCanvasElementLayer('forward')}
+                                        onLayerBackward={() => handleMoveCanvasElementLayer('backward')}
+                                    />
+                                ) : (
+                                    <SlidePreview
+                                        slide={currentSlide}
+                                        theme={theme}
+                                        onRequestEdit={(field) => setActiveEditField(field)}
+                                    />
+                                )}
                             </motion.div>
                         </div>
                     </div>
                 </div>
 
-                <PropertiesPanel />
+                <PropertiesPanel
+                    selectedCanvasElementId={selectedCanvasElementId}
+                    onSelectCanvasElement={setSelectedCanvasElementId}
+                    onAddCanvasElement={handleAddCanvasElement}
+                    onDuplicateCanvasElement={handleDuplicateCanvasElement}
+                    onDeleteCanvasElement={handleDeleteCanvasElement}
+                    onMoveCanvasElementLayer={handleMoveCanvasElementLayer}
+                    onUpdateSelectedCanvasElement={handleUpdateSelectedCanvasElement}
+                />
             </div>
 
-            <footer className="h-8 border-t border-[#0000000d] bg-white flex items-center justify-between px-4 text-[10px] text-zinc-500 flex-shrink-0 font-medium z-10">
-                <span>
-                    Slide {selectedSlideIndex + 1} of {deckSpec.slides.length} · {deckSpec.themeId}
+            <footer className="h-8 border-t border-zinc-200 bg-white flex items-center justify-between px-4 text-[10px] text-zinc-400 flex-shrink-0 font-medium z-10">
+                <span className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                    {deckSpec.themeId} theme
                 </span>
                 <span className="flex items-center gap-3">
-                    <span>Ctrl/Cmd+S Save</span>
-                    <span>Ctrl/Cmd+Enter Generate</span>
+                    {canvasSlide ? (
+                        <span>Arrow keys: nudge · Shift+Arrow: larger steps · Del: delete · Ctrl+D: duplicate · Double-click: edit text</span>
+                    ) : (
+                        <span>Click elements in preview to edit in the panel →</span>
+                    )}
                 </span>
             </footer>
         </div>

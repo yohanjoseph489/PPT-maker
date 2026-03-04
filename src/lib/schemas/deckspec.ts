@@ -1,6 +1,22 @@
 import { z } from 'zod';
 import { THEME_IDS } from '@/lib/themes';
 
+const MAX_PROMPT_WORDS = 500;
+const SOFT_MAX_PROMPT_CHARS = 4000;
+
+function countWords(text: string): number {
+    return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+const PromptTextSchema = z
+    .string()
+    .trim()
+    .min(1, 'Prompt is required')
+    .max(SOFT_MAX_PROMPT_CHARS, `Prompt must be ${SOFT_MAX_PROMPT_CHARS} characters or fewer`)
+    .refine((value) => countWords(value) <= MAX_PROMPT_WORDS, {
+        message: `Prompt must be ${MAX_PROMPT_WORDS} words or fewer`,
+    });
+
 // ─── Slide Types ───────────────────────────────────────────
 
 export const SlideTypeEnum = z.enum([
@@ -106,6 +122,10 @@ const CanvasTextElementSchema = CanvasElementBase.extend({
             fontWeight: z.enum(['normal', 'medium', 'semibold', 'bold']).optional(),
             align: z.enum(['left', 'center', 'right']).optional(),
             italic: z.boolean().optional(),
+            underline: z.boolean().optional(),
+            strikethrough: z.boolean().optional(),
+            fontFamily: z.string().max(100).optional(),
+            background: z.string().optional(),
         })
         .optional(),
 });
@@ -184,7 +204,7 @@ export type DeckSpec = z.infer<typeof DeckSpecSchema>;
 // ─── Generation Input ──────────────────────────────────────
 
 export const GenerateInputSchema = z.object({
-    topic: z.string().min(1, 'Topic is required').max(500),
+    topic: PromptTextSchema,
     audience: z.string().max(200).optional(),
     tone: z.enum(['professional', 'casual', 'academic', 'creative', 'persuasive']).default('professional'),
     slideCount: z.number().int().min(3).max(20).default(8),
@@ -192,7 +212,7 @@ export const GenerateInputSchema = z.object({
     generationMode: z.enum(['standard', 'advancedLayout']).default('standard'),
     includeSpeakerNotes: z.boolean().default(false),
     brandColor: z.string().optional(),
-    additionalInstructions: z.string().max(500).optional(),
+    additionalInstructions: PromptTextSchema.optional(),
 });
 
 export type GenerateInput = z.infer<typeof GenerateInputSchema>;
@@ -202,7 +222,7 @@ export type GenerateInput = z.infer<typeof GenerateInputSchema>;
 export const RegenerateInputSchema = z.object({
     deckSpec: DeckSpecSchema,
     slideIndex: z.number().int().min(0).optional(),
-    instruction: z.string().max(500).optional(),
+    instruction: PromptTextSchema.optional(),
 });
 
 export type RegenerateInput = z.infer<typeof RegenerateInputSchema>;

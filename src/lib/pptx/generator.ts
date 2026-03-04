@@ -560,10 +560,11 @@ function renderCanvasElement(
             w,
             h,
             fontSize: Math.max(10, Math.min(60, element.style?.fontSize || 20)),
-            fontFace: config.bodyFont,
+            fontFace: element.style?.fontFamily || config.bodyFont,
             color: safePptColor(element.style?.color, config.textColor),
             bold: element.style?.fontWeight === 'bold' || element.style?.fontWeight === 'semibold',
             italic: element.style?.italic || false,
+            underline: element.style?.underline ? { style: 'sng' as const } : { style: 'none' as const },
             align: (element.style?.align || 'left') as PptxGenJS.HAlign,
             valign: 'top' as PptxGenJS.VAlign,
             margin: 1,
@@ -576,8 +577,8 @@ function renderCanvasElement(
             element.shape === 'circle'
                 ? ('ellipse' as PptxGenJS.ShapeType)
                 : element.shape === 'roundedRect'
-                  ? ('roundRect' as PptxGenJS.ShapeType)
-                  : ('rect' as PptxGenJS.ShapeType);
+                    ? ('roundRect' as PptxGenJS.ShapeType)
+                    : ('rect' as PptxGenJS.ShapeType);
 
         slide.addShape(shapeType, {
             x,
