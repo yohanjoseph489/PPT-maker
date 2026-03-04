@@ -2,6 +2,8 @@
 
 import type { Slide } from '@/lib/schemas/deckspec';
 import type { ThemeDefinition } from '@/lib/themes';
+import ChartRenderer from '@/components/charts/ChartRenderer';
+import { normalizeChartSpec } from '@/lib/charts/normalize';
 
 interface SlidePreviewProps {
     slide: Slide;
@@ -144,24 +146,18 @@ export default function SlidePreview({ slide, theme, onRequestEdit }: SlidePrevi
     }
 
     if (slide.type === 'chart') {
-        const labels = slide.labels.slice(0, 8);
-        const values = slide.values.slice(0, 8);
-        const maxValue = Math.max(...values, 1);
+        const normalizedChart = normalizeChartSpec({
+            type: slide.chartType,
+            categories: slide.labels,
+            values: slide.values,
+        });
         return (
             <div style={containerStyle} className="flex flex-col px-[8%] py-[6%]">
                 <h2 style={{ fontFamily: heading }} className="text-2xl lg:text-3xl font-bold mb-4 break-words" onClick={() => requestEdit('title')}>
                     {clamp(slide.title || 'Data Overview', 72)}
                 </h2>
                 <div className="rounded-lg p-4 flex-1 border" style={{ background: surface, borderColor: `${primary}25` }} onClick={() => requestEdit('values')}>
-                    <div className="h-full flex items-end gap-3">
-                        {values.map((value, i) => (
-                            <div key={`${labels[i]}-${i}`} className="flex-1 flex flex-col items-center gap-2">
-                                <div className="text-[11px]" style={{ color: secondary }}>{value}</div>
-                                <div className="w-full rounded-t-md" style={{ height: `${Math.max((value / maxValue) * 100, 4)}%`, background: primary }} />
-                                <div className="text-[11px] text-center leading-tight break-words" style={{ color: secondary }}>{clamp(labels[i] || `Item ${i + 1}`, 16)}</div>
-                            </div>
-                        ))}
-                    </div>
+                    <ChartRenderer spec={normalizedChart} primaryColor={primary} textColor={text} secondaryColor={secondary} surfaceColor={surface} />
                 </div>
                 <div className="absolute bottom-0 left-0 right-0 h-0.5" style={{ background: primary, opacity: 0.6 }} />
             </div>
@@ -278,21 +274,14 @@ export default function SlidePreview({ slide, theme, onRequestEdit }: SlidePrevi
                 );
             }
 
-            const values = element.values?.slice(0, 8) || [];
-            const labels = element.labels?.slice(0, 8) || [];
-            const maxValue = Math.max(...values, 1);
+            const normalizedChart = normalizeChartSpec({
+                type: element.chartType,
+                categories: element.labels,
+                values: element.values,
+            });
             return (
                 <div key={element.id} style={{ ...baseStyle, borderRadius: '12px', border: `1px solid ${primary}30`, background: surface, padding: '8px' }} onClick={() => requestEdit('elements')}>
-                    <div className="w-full h-full flex items-end gap-1.5">
-                        {values.map((v, i) => (
-                            <div key={`${labels[i]}-${i}`} className="flex-1 flex flex-col items-center justify-end gap-1">
-                                <div className="w-full rounded-sm" style={{ height: `${Math.max((Math.max(v, 0) / maxValue) * 100, 6)}%`, background: primary, opacity: 0.8 }} />
-                                <div className="text-[9px] leading-none text-center break-words" style={{ color: secondary }}>
-                                    {clamp(labels[i] || `${i + 1}`, 8)}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
+                    <ChartRenderer spec={normalizedChart} primaryColor={primary} textColor={text} secondaryColor={secondary} surfaceColor={surface} className="text-[10px]" />
                 </div>
             );
         };
